@@ -4,7 +4,15 @@ Standalone MetaTrader 5 client in pure Python. Talks the terminal's native
 WebSocket protocol directly to the broker, so no MT5 desktop, no Wine, no
 bridge DLL.
 
+[![PyPI](https://img.shields.io/pypi/v/mt5direct)](https://pypi.org/project/mt5direct/)
+
 ## Install
+
+```bash
+pip install mt5direct
+```
+
+From source:
 
 ```bash
 pip install -e .
