@@ -107,15 +107,6 @@ request so everyone gets them. Or skip all of it and pass the host directly:
 client = MT5Client(host="live3.webterminal-hfm.com:1951")
 ```
 
-### Verified brokers
-
-| Broker | Servers | Hosts |
-|--------|---------|-------|
-| Exness | all `Exness-MT5*` | `<code>.exwebterm.com` (pattern) |
-| HFM | `HFMarketsGlobal-Live1..20`, `HFMarkets-Live12`, `HFMarketsGlobal-Demo4` | `live*.webterminal-hfm.com:1951` |
-| Finex | `FinexBisnisSolusi-Real`, `-Demo` | `real-terminal.finex.co.id`, `demo-terminal.finex.co.id` |
-| MetaQuotes | `MetaQuotes-Demo` | `web.metatrader.app` |
-
 Reconnects (`client.reconnect(...)` and the tick listener's automatic reconnect)
 try the resolved host first, then the built-in `TRADE_HOSTS` pool.
 
