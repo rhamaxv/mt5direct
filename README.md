@@ -114,3 +114,15 @@ The single-file version lives in `legacy/main.py`. Differences:
 - `client.symbols` is now the symbol service; the symbol list is `client.symbol_list`.
 - `connect()`/`login()` raise `ConnectionFailed`/`LoginFailed` (both subclass `ConnectionError`).
 - Credentials come from `MT5_LOGIN` / `MT5_PASSWORD` in the examples.
+
+## Releasing
+
+1. Bump `version` in `pyproject.toml`.
+2. Commit, then tag and push:
+
+```bash
+git tag v0.1.1 && git push origin main --tags
+```
+
+The `Publish to PyPI` workflow runs the tests, checks that the tag matches the
+version, builds, and uploads via PyPI Trusted Publishing.

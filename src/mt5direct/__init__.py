@@ -8,7 +8,7 @@ from .models import (
     TradeAck, TradeResult,
 )
 
-__version__ = "0.1.0"
+from ._version import __version__  # noqa: E402
 
 __all__ = [
     "MT5Client", "__version__",
