@@ -7,6 +7,7 @@ from mt5direct.protocol.layouts import DEAL_RECORD_SIZE, ORDER_RECORD_SIZE
 def _deal(deal_id, symbol, t, action, entry, price, volume_raw, profit):
     rec = bytearray(DEAL_RECORD_SIZE)
     rec[0:8] = struct.pack('<q', deal_id)
+    rec[72:80] = struct.pack('<q', 66)
     rec[80:84] = struct.pack('<I', t)
     rec[88:88 + len(symbol) * 2] = symbol.encode('utf-16-le')
     rec[152:156] = struct.pack('<I', action)

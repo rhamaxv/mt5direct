@@ -26,9 +26,9 @@ def main() -> None:
 
         positions, pending = client.get_positions_and_orders()
         for p in positions[:10]:
-            print(f"position #{p.ticket} {p.type} {p.symbol} {p.volume} @ {p.price_open} -> {p.price_current}  profit {p.profit} swap {p.swap} comm {p.commission} margin {p.margin:.2f}")
+            print(f"position #{p.ticket} {p.type} {p.symbol} {p.volume} @ {p.price_open} -> {p.price_current}  profit {p.profit} margin {p.margin:.2f} '{p.comment}'")
         for o in pending[:10]:
-            print(f"pending  #{o.ticket} {o.symbol} @ {o.price} t={o.time} '{o.comment}'")
+            print(f"pending  #{o.ticket} {o.type} {o.symbol} {o.volume} @ {o.price} (now {o.price_current}) '{o.comment}'")
 
         for name, info in client.get_symbol_info("EURUSD", "XAUUSD").items():
             print(f"spec     {name}: {info.trade_mode}, contract {info.contract_size}, tick {info.tick_size}/{info.tick_value}, "
@@ -37,10 +37,10 @@ def main() -> None:
         deals, orders = client.get_history()
         print(f"history  {len(deals)} deals, {len(orders)} orders")
         for d in deals[-3:]:
-            print(f"deal     #{d.deal} order {d.order} {d.action} {d.entry} {d.symbol} {d.volume} @ {d.price} profit {d.profit} comm {d.commission} swap {d.swap} '{d.comment}'")
+            print(f"deal     #{d.deal} order {d.order} pos {d.position_id} {d.action} {d.entry} {d.symbol} {d.volume} @ {d.price} profit {d.profit} '{d.comment}'")
 
-        client.login_with_token(int(os.environ["MT5_LOGIN"]))
-        print("\ntoken login: ok")
+        for o in orders[-3:]:
+            print(f"order    #{o.order} {o.type} {o.state} {o.symbol} {o.volume} @ {o.price or o.price_current} pos {o.position_id} '{o.comment}'")
 
 
 if __name__ == "__main__":

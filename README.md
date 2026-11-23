@@ -9,12 +9,12 @@ Standalone MetaTrader 5 client in pure Python. It speaks the terminal's native
 WebSocket protocol directly to the broker's trade server, so there is no MT5
 desktop, no Wine, no bridge DLL, and it runs on Linux and macOS.
 
-- Login (password or session token), account info and live equity/margin summary
+- Login, account info and live equity/margin summary
 - Symbol list and trading specifications (contract size, volumes, trade mode)
 - Candles (optionally as a pandas DataFrame), live ticks, trade and position events
 - Market, pending, modify, cancel and close orders; open positions and pending orders
-- Deal and order history with commission, swap, fee, magic and comment
-- Heartbeat and automatic reconnect that re-logs in with the session token
+- Deal and order history with order and position ids, prices, volumes and comments
+- Heartbeat and automatic reconnect that re-logs in and re-subscribes
 - Sync and asyncio clients, typed results (frozen dataclasses), offline-testable parsers
 
 **Contents**
@@ -238,10 +238,10 @@ scale. `0.0` for `sl`/`tp` means "not set".
 
 ```python
 for p in client.get_positions():
-    print(p.ticket, p.type, p.symbol, p.volume, p.price_open, p.profit, p.swap, p.commission, p.margin)
+    print(p.ticket, p.type, p.symbol, p.volume, p.price_open, p.profit, p.margin)
 
 for o in client.get_pending_orders():
-    print(o.ticket, o.symbol, o.price, o.time, o.comment)
+    print(o.ticket, o.type, o.symbol, o.price, o.volume, o.comment)
 
 positions, pending = client.get_positions_and_orders()   # one round-trip
 

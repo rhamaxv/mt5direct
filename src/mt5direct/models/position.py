@@ -14,10 +14,8 @@ class Position:
     tp: float
     contract_size: float
     profit: float = 0.0
-    swap: float = 0.0
-    commission: float = 0.0
+    """Server-side floating profit."""
     time_open: int = 0
-    magic: int = 0
     comment: str = ""
     digits: int = 0
     margin: float = 0.0
@@ -26,13 +24,22 @@ class Position:
 
 @dataclass(frozen=True, slots=True)
 class PendingOrder:
-    """An active pending order from the init-trading reply. Layout is partially known."""
+    """An active pending order from the init-trading reply (same 356-byte layout as ``HistoryOrder``)."""
 
     ticket: int
     symbol: str
+    type: str
+    type_id: int
     price: float
-    time: int
+    price_current: float
+    volume: float
+    volume_current: float
+    time_setup: int
     comment: str
+    state: str = "PLACED"
+    type_filling: int = 0
+    contract_size: float = 0.0
+    digits: int = 0
 
 
 @dataclass(frozen=True, slots=True)

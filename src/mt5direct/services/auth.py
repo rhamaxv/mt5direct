@@ -69,20 +69,18 @@ class AuthService(BaseService):
         return self._do_login(login_id, '', token, "Token login")
 
     def relogin(self) -> None:
-        """Token first, password as fallback. No-op without stored credentials."""
+        """Password first; the session token only when no password is stored.
+
+        Token login follows the web terminal's payload but was rejected by the Exness
+        server in testing (``dd=10``), so it is a fallback, not the default.
+        """
         login_id = self.state.login_id
         if not login_id:
             return
-        if self.state.login_token:
-            try:
-                self.login_with_token(login_id)
-                return
-            except LoginFailed as e:
-                log.debug("token login rejected (%s), falling back to password", e)
-                if not self.state.password:
-                    raise
         if self.state.password:
             self.login(login_id, self.state.password)
+        elif self.state.login_token:
+            self.login_with_token(login_id)
 
     def ping(self) -> Optional[Frame]:
         return self.request(CMD_PING, timeout=5)

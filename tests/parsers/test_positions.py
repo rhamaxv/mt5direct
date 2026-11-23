@@ -14,7 +14,7 @@ def _position(ticket, symbol, direction, price_open, price_current, sl, tp, volu
     rec[108:116] = struct.pack('<d', sl)
     rec[116:124] = struct.pack('<d', tp)
     rec[124:132] = struct.pack('<Q', volume_raw)
-    rec[248:256] = struct.pack('<d', contract_size)
+    rec[252:260] = struct.pack('<d', contract_size)
     return bytes(rec)
 
 

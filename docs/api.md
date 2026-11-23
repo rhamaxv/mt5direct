@@ -49,7 +49,9 @@ for `auto_reconnect`. Raises `LoginFailed`.
 ### `login_with_token(login_id: int, token: bytes | None = None) -> Frame`
 
 Re-login with the token from a previous login (default: the stored one) and no
-password. Raises `ValueError` without a token, `LoginFailed` if the server rejects it.
+password. Follows the web terminal's payload but was rejected by the Exness server in
+testing; `auto_reconnect` therefore uses the password first. Raises `ValueError`
+without a token, `LoginFailed` if the server rejects it.
 
 ### `ping() -> Optional[Frame]`
 
@@ -63,7 +65,7 @@ symbols or re-subscribe.
 
 ### `auto_reconnect() -> bool`
 
-Like `reconnect` but re-logs in with the stored token first, then the password, and
+Like `reconnect` but re-logs in with the stored password (token only as fallback) and
 restores state: `get_symbols()`, `init_trading()`, `subscribe_all()`. Called by the
 tick listener and the heartbeat when the socket fails.
 
@@ -178,7 +180,7 @@ Ping every `interval` seconds on a daemon thread. A failed or timed-out ping tri
 
 All helpers return `TradeAck | TradeResult | None`; see README "Return values".
 
-### `trade(order_type, symbol, lots, price=0.0, sl=0.0, tp=0.0, comment="", position=0, position_by=0, exec_mode=EXEC_MARKET, filling_ea=FILLING_FOK, flags=FLAGS_XA, deviation=0, order=0) -> Optional[TradeAck]`
+### `trade(order_type, symbol, lots, price=0.0, sl=0.0, tp=0.0, comment="", position=0, position_by=0, exec_mode=EXEC_MARKET, filling_ea=FILLING_FOK, flags=FLAGS_XA, deviation=0, order=0, price_trigger=0.0, type_time=0, expiration=0) -> Optional[TradeAck]`
 
 Raw trade request.
 
@@ -209,8 +211,11 @@ Read frames until a final execution report arrives. Transient codes
 
 ### Modify / cancel
 - `modify_sl_tp(symbol, position_ticket, sl=0.0, tp=0.0)`
-- `modify_pending(symbol, order_ticket, price, sl=0.0, tp=0.0)`
-- `cancel_order(symbol, order_ticket)`
+- `modify_pending(symbol, order_ticket, price, sl=0.0, tp=0.0, order_type=None, lots=None)`
+- `cancel_order(symbol, order_ticket, order_type=None, price=None, lots=None)`
+
+The server requires the pending order's original type, price and volume on modify and
+remove; when not given they are looked up with one `init_trading` round-trip.
 
 ### Close
 - `close_position(symbol, ticket, lots=None, pos_type='BUY')` — opens the opposite side against `ticket`. `lots` defaults to `0.01`; pass the position's volume to close fully.
@@ -387,9 +392,7 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `sl`, `tp` | `float` — `0.0` if unset |
 | `contract_size` | `float` |
 | `profit` | `float` — server-side floating profit |
-| `swap`, `commission` | `float` |
 | `time_open` | `int` |
-| `magic` | `int` |
 | `comment` | `str` |
 | `digits` | `int` |
 | `margin` | `float` — computed, 0 without leverage |
@@ -399,9 +402,16 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 |-------|------|
 | `ticket` | `int` |
 | `symbol` | `str` |
+| `type`, `type_id` | `str`, `int` — `BUY_LIMIT`, ... |
 | `price` | `float` |
-| `time` | `int` — 0 if implausible |
+| `price_current` | `float` |
+| `volume`, `volume_current` | `float` lots |
+| `time_setup` | `int` |
 | `comment` | `str` |
+| `state` | `str` |
+| `type_filling` | `int` |
+| `contract_size` | `float` |
+| `digits` | `int` |
 
 ### `PositionPnL`
 | Field | Type |
@@ -422,22 +432,28 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `volume` | `float` lots |
 | `profit` | `float` |
 | `order` | `int` |
-| `commission`, `swap`, `fee` | `float` |
+| `position_id` | `int` |
+| `price_position` | `float` — open price of the position, 0 on entry deals |
 | `comment` | `str` |
-| `magic` | `int` |
+| `contract_size` | `float` |
+| `digits` | `int` |
 
 ### `HistoryOrder`
 | Field | Type |
 |-------|------|
 | `order` | `int` |
-| `time` | `int` |
 | `symbol` | `str` |
-| `type` | `str` — `BUY`, `SELL_LIMIT`, ... |
-| `state` | `str` — `PLACED`, `FILLED`, `CANCELED`, ... |
-| `price` | `float` |
-| `volume` | `float` lots |
-| `sl`, `tp` | `float` |
+| `type`, `type_id` | `str`, `int` |
+| `state`, `state_id` | `str`, `int` — `PLACED`, `CANCELED`, `FILLED`, ... |
+| `time_setup`, `time_done` | `int` |
+| `price` | `float` — 0 for market orders |
+| `price_current` | `float` — fill price for market orders |
+| `volume`, `volume_current` | `float` lots |
+| `position_id` | `int` |
 | `comment` | `str` |
+| `type_filling` | `int` |
+| `contract_size` | `float` |
+| `digits` | `int` |
 
 ### `TradeAck`
 | Field | Type |

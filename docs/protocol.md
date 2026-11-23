@@ -111,30 +111,35 @@ u64 0
 
 ### Trade request (12)
 
+Field order taken from the official web terminal's request builder:
+
 ```
-u32 0
-u32 exec_mode          EXEC_MARKET | TRADE_ACTION_*
+u32 0                  request id
+u32 action             EXEC_MARKET | TRADE_ACTION_*
 wchar[64] symbol
 u64 volume_raw
-u32 0
+u32 digits             of the symbol
 i64 order              pending ticket for modify/remove
-u32 order_type         ORDER_*
-u32 filling
-u32 deviation
+u32 type               ORDER_*
+u32 type_filling
+u32 type_time
 u32 flags
 u32 0
 f64 price
+f64 price_trigger      stop-limit trigger price
 f64 sl
 f64 tp
-f64 0
-u32 0
+u32 deviation
 f64 0
 f64 0
 wchar[64] comment
 u64 position           ticket to close/modify
 u64 position_by
-buf[4] zeros
+u32 expiration
 ```
+
+Modify and remove requests must repeat the pending order's type, price and volume,
+otherwise the server answers `ORDER_LOCKED` (10023).
 
 Reply payload: `u32 retcode`. `0` means queued; the final outcome arrives as a
 cmd 19 event.
@@ -168,8 +173,10 @@ Fields past 89 bytes are read only when the payload is long enough.
 
 ### Login reply (cmd 28)
 
-First 160 bytes: session token. Sending it in the 160-byte buffer of a later login
-request (empty password) re-authenticates without the password.
+Bytes 0..160: session token; bytes 160..168: a u64 the web terminal sends back as the
+second-to-last field of its next login. Replaying both on a fresh connection was
+rejected by the Exness server (`dd=10`) in testing, so token login is exposed but
+unverified.
 
 ### Symbol table (cmd 34)
 
@@ -212,11 +219,13 @@ Payload: 4 unknown bytes, then zlib stream. Decompressed:
 
 ### Position (cmd 4 reply)
 
-`u32 count`, then `count` × 344-byte records.
+`u32 count`, then `count` × 344-byte records. Verified on live records (EURUSD, BTCUSD):
 
 | Offset | Type | Field |
 |--------|------|-------|
 | 0 | i64 | ticket |
+| 16 | u32 | time_open |
+| 20 | u32 | time_update |
 | 24 | wchar[64] | symbol |
 | 88 | u32 | direction (0 buy, 1 sell) |
 | 92 | f64 | price_open |
@@ -225,68 +234,65 @@ Payload: 4 unknown bytes, then zlib stream. Decompressed:
 | 116 | f64 | tp |
 | 124 | u64 | volume_raw |
 | 132 | f64 | profit |
-| 140 | f64 | swap |
-| 148 | f64 | commission |
-| 16 | u32 | time_open |
-| 160 | i64 | magic |
+| 140 | f64 | 1.0 on USD accounts (conversion rate, not decoded) |
+| 148 | f64 | price_open again (not decoded) |
+| 180 | i64 | ticket again |
 | 188 | wchar[64] | comment |
-| 248 | f64 | contract_size |
+| 252 | f64 | contract_size |
 | 260 | u32 | digits |
 
-`sl`/`tp` ≥ 1e10 are server placeholders and are reported as `0.0`.
+`sl`/`tp` ≥ 1e10 are server placeholders and are reported as `0.0`. Swap and
+commission were zero on every record seen, so their offsets are unknown and the
+fields are not exposed.
 
-### Pending orders (cmd 4 reply, after the positions)
+### Orders (cmd 4 reply after the positions, and cmd 5 reply after the deals)
 
-`u32 count`, then `count` records of equal size (`remaining / count`, ≥ 100 bytes).
-Partially known:
+`u32 count`, then `count` × 356-byte records, possibly followed by a few trailing
+bytes. Pending orders and history orders share this layout:
 
 | Offset | Type | Field |
 |--------|------|-------|
 | 0 | i64 | ticket |
-| 72 (fallback 24) | wchar[64] | symbol |
-| 136 | u32 | time |
+| 72 | wchar[64] | symbol |
+| 136 | u32 | time_setup |
+| 144 | u32 | time_done (0 while active) |
+| 148 | u32 | type (`ORDER_TYPE_NAMES`) |
+| 152 | u32 | type_filling |
+| 164 | f64 | price (0 for market orders) |
+| 180 | f64 | price_current (fill price for market orders) |
+| 204 | u64 | volume_initial (raw) |
+| 212 | u64 | volume_current (raw, 0 when filled) |
+| 220 | u32 | state (`ORDER_STATE_NAMES`: 1 placed, 2 canceled, 4 filled) |
+| 232 | i64 | position id |
 | 240 | wchar[64] | comment |
-| 336 | f64 | price |
+| 304 | f64 | contract_size |
+| 312 | u32 | digits |
+| 336 | f64 | price again |
 
-Values failing plausibility checks (NaN price, time outside 2020–2030) are zeroed.
+SL/TP of orders were never set on the records seen; their offsets are unknown.
 
-### History (cmd 5)
-
-`u32 deal_count`, deals (356 bytes each), `u32 order_count`, orders (356 bytes each).
-
-Deal:
+### Deal (cmd 5 reply), 356 bytes
 
 | Offset | Type | Field |
 |--------|------|-------|
 | 0 | i64 | deal |
+| 72 | i64 | order |
 | 80 | u32 | time |
 | 88 | wchar[64] | symbol |
 | 152 | u32 | action (0 buy, 1 sell) |
 | 156 | u32 | entry (0 in, 1 out) |
 | 160 | f64 | price |
+| 168 | f64 | price of the position (0 on entry deals) |
 | 192 | u64 | volume_raw |
 | 200 | f64 | profit |
-| 8 | i64 | order |
-| 168 | f64 | commission |
-| 176 | f64 | swap |
-| 184 | f64 | fee |
+| 208 | f64 | 1.0 (conversion rate, not decoded) |
+| 216 | f64 | price again |
+| 248 | i64 | position id |
 | 256 | wchar[64] | comment |
-| 320 | i64 | magic |
+| 320 | f64 | contract_size |
+| 328 | u32 | digits |
 
-Order (356 bytes):
-
-| Offset | Type | Field |
-|--------|------|-------|
-| 0 | i64 | order |
-| 80 | u32 | time |
-| 88 | wchar[64] | symbol |
-| 108 | f64 | sl |
-| 116 | f64 | tp |
-| 152 | u32 | type (`ORDER_TYPE_NAMES`) |
-| 156 | u32 | state (`ORDER_STATE_NAMES`) |
-| 160 | f64 | price |
-| 192 | u64 | volume_raw |
-| 256 | wchar[64] | comment |
+Commission, swap and fee were zero on every record seen; offsets unknown.
 
 ### Trade result (cmd 19), ≥ 380 bytes
 
