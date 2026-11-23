@@ -39,7 +39,8 @@ def main() -> None:
         for d in deals[-3:]:
             print(f"deal     #{d.deal} order {d.order} {d.action} {d.entry} {d.symbol} {d.volume} @ {d.price} profit {d.profit} comm {d.commission} swap {d.swap} '{d.comment}'")
 
-        print("\ntoken login:", "ok" if client.login_with_token(acct.raw and int(os.environ["MT5_LOGIN"])) else "failed")
+        client.login_with_token(int(os.environ["MT5_LOGIN"]))
+        print("\ntoken login: ok")
 
 
 if __name__ == "__main__":
