@@ -54,7 +54,7 @@ class AuthService(BaseService):
         self.session.close()
         for host in self._reconnect_hosts():
             try:
-                self.session.host = host
+                self.session.address = host
                 self.session.connect()
                 if login_id and password:
                     self.login(login_id, password)
@@ -68,7 +68,7 @@ class AuthService(BaseService):
         self.session.close()
         for host in self._reconnect_hosts():
             try:
-                self.session.host = host
+                self.session.address = host
                 self.session.connect()
                 if self.state.login_id and self.state.password:
                     self.login(self.state.login_id, self.state.password)

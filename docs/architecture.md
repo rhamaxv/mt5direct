@@ -4,6 +4,7 @@
 src/mt5direct/
 ├── client.py          MT5Client facade
 ├── discovery.py       server name -> verified web terminal host (HTTP, no protocol code)
+├── data/              webterminals.json registry shipped with the package
 ├── exceptions.py
 ├── constants/         command ids, order constants, retcodes, timeframes, hosts
 ├── protocol/          bytes only: crypto, framing, serializer, reader, layouts

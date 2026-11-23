@@ -1,0 +1,35 @@
+{
+  "_comment": "MT5 Web Terminal hosts per trade server. Verified by reading window.__terminal_params on each host's /terminal page. Add your broker and open a pull request.",
+  "version": 1,
+  "updated": "2026-11-23",
+  "patterns": {
+    "Exness": {
+      "host": "{code}.exwebterm.com",
+      "port": 443
+    }
+  },
+  "servers": {
+    "FinexBisnisSolusi-Demo": "demo-terminal.finex.co.id",
+    "FinexBisnisSolusi-Real": "real-terminal.finex.co.id",
+    "HFMarkets-Live12": "live-12.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Demo4": "demo-4.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live1": "live.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live10": "live10.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live11": "live11.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live13": "live-13.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live14": "live-14.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live15": "live-15.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live16": "live-16.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live17": "live-17.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live18": "live-18.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live19": "live-19.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live20": "live-20.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live3": "live3.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live4": "live4.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live5": "live5.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live7": "live7.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live8": "live8.webterminal-hfm.com:1951",
+    "HFMarketsGlobal-Live9": "live9.webterminal-hfm.com:1951",
+    "MetaQuotes-Demo": "web.metatrader.app"
+  }
+}

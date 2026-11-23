@@ -19,8 +19,8 @@ MT5Client.from_server(server: str) -> MT5Client
 ```
 
 `server` is a trade server name (`'Exness-MT5Trial6'`); it is resolved and verified
-with `discovery.resolve_server` and may raise `ServerNotFound`. `host` connects to a
-web terminal host directly and wins if both are given. With neither, `TRADE_HOSTS[0]`
+with `discovery.resolve_server` and may raise `ServerNotFound`. `host` (`'host'` or
+`'host:port'`) connects to a web terminal host directly and wins if both are given. With neither, `TRADE_HOSTS[0]`
 is used. The port and path are fixed.
 
 | Member | Type | Description |
@@ -28,7 +28,8 @@ is used. The port and path are fixed.
 | `connect()` | `None` | Open the socket and run the hello handshake. Raises `ConnectionFailed`. |
 | `close()` | `None` | Close the socket. Safe to call twice. |
 | `recv_any(timeout=5)` | `Optional[Frame]` | Next frame from the queue or the wire. |
-| `host` | `str` | Current server host. Assignable before `connect()` / `reconnect()`. |
+| `host` | `str` | Current server host. Assigning accepts `host` or `host:port`. |
+| `address` | `str` | `host` or `host:port`. |
 | `endpoint` | `Optional[Endpoint]` | Resolved endpoint when built from a server name. |
 | `server_id` | `int` | Server id from the hello reply. |
 | `symbol_list` | `list[Symbol]` | Symbols from the last `get_symbols()`. |
@@ -196,39 +197,56 @@ last `{symbol: {'bid': ..., 'ask': ...}}` seen. P&L is
 
 ## mt5direct.discovery
 
-Server-name resolution. All functions accept `timeout` and a `fetch(url, timeout) -> str`
-override for testing.
-
-### `resolve_server(name) -> Endpoint`
-
-Build candidate hosts, fetch each `/terminal` page, and return the first host whose
-`__terminal_params.servers` announces `name` (case-insensitive). Raises `ServerNotFound`.
+Server-name resolution. Network functions accept `timeout` and a
+`fetch(url, timeout) -> str` override for testing.
 
 ### `list_servers(search=None) -> list[str]`
 
-MT5 server names from MetaQuotes' directory, optionally filtered by substring.
+MT5 server names from MetaQuotes' directory, filtered by case-insensitive substring.
+This is the "search company" step of the MT5 app.
 
-### `inspect_host(host) -> list[Endpoint]`
+### `resolve_server(name, registry=None) -> Endpoint`
+
+Candidates from the registry (exact entry, then broker pattern, then generic
+guesses) are verified in order by reading the `__terminal_params` announcement on
+`https://host:port/terminal`; the first host announcing `name` wins. A verified
+guess is written to the learned cache. Raises `ServerNotFound`.
+
+### `discover_from_url(url) -> list[Endpoint]`
+
+Fetch a broker page (a terminal page or a launcher that embeds/links one), collect
+every `https://host[:port]/terminal` reference, verify each, remember each.
+
+### `load_registry(remote=True) -> Registry`
+
+Bundled `data/webterminals.json`, overlaid with the GitHub copy (cached 24 h in
+`MT5DIRECT_CACHE_DIR`, default `~/.cache/mt5direct/`) and this machine's learned
+entries. `MT5DIRECT_OFFLINE=1` or `remote=False` skips the network.
+
+### `inspect_host(host, port=443) -> list[Endpoint]`
 
 Servers announced by a web terminal host; empty if unreachable or not a terminal.
 
-### `candidate_hosts(name) -> list[str]`
+### `candidate_addresses(name, registry) -> list[str]`
 
-Unverified host guesses for a server name, from `KNOWN_HOSTS` and `BROKER_DOMAINS`.
+Unverified `host[:port]` guesses, most likely first.
 
-### `BROKER_DOMAINS: dict[str, str]`
-
-Broker prefix to web terminal domain, e.g. `{"Exness": "exwebterm.com"}`. Mutable;
-add your broker here.
+### `Registry`
+| Field | Type |
+|-------|------|
+| `servers` | `dict[str, str]` — server name → `host[:port]` |
+| `patterns` | `dict[str, dict]` — broker prefix → `{"host": "{code}.domain", "port": 443}` |
 
 ### `Endpoint`
 | Field | Type |
 |-------|------|
 | `host` | `str` |
+| `port` | `int` — default 443 |
 | `server` | `str` |
 | `broker` | `str` — company name from the terminal page |
 | `build` | `int` — server build |
 | `path` | `str` — always `/terminal` |
+| `address` | property, `host` or `host:port` |
 
 ## Models
 

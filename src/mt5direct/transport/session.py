@@ -6,7 +6,7 @@ import time
 from typing import Optional
 
 from ..constants.commands import CMD_HELLO
-from ..constants.network import INITIAL_KEY
+from ..constants.network import INITIAL_KEY, WS_PORT
 from ..exceptions import ConnectionFailed
 from ..models import Frame
 from ..protocol import AesCipher, decode_frame, encode_frame
@@ -19,8 +19,10 @@ _SESSION_KEY_SLICE = slice(66, 98)
 class Session:
     """Owns the socket, the AES key, and a queue of frames received while waiting for others."""
 
-    def __init__(self, host: str):
-        self.host = host
+    def __init__(self, host: str, port: int = WS_PORT):
+        self.host, self.port = host, port
+        if ":" in host:
+            self.address = host
         self.server_id = 0
         self.cipher = AesCipher(INITIAL_KEY)
         self._transport: Optional[WebSocketTransport] = None
@@ -31,9 +33,19 @@ class Session:
     def is_open(self) -> bool:
         return self._transport is not None and self._transport.is_open
 
+    @property
+    def address(self) -> str:
+        """``host`` or ``host:port`` when the port is not the default."""
+        return self.host if self.port == WS_PORT else f"{self.host}:{self.port}"
+
+    @address.setter
+    def address(self, value: str) -> None:
+        host, _, port = value.partition(":")
+        self.host, self.port = host, int(port) if port else WS_PORT
+
     def connect(self) -> None:
         """Open the socket and perform the hello handshake, switching to the session key."""
-        self._transport = WebSocketTransport(self.host)
+        self._transport = WebSocketTransport(self.host, self.port)
         self._transport.open(timeout=15)
         self.cipher = AesCipher(INITIAL_KEY)
         self.send(CMD_HELLO, _HELLO_PAYLOAD)

@@ -47,69 +47,94 @@ pip install -e '.[dev]'
 
 ## Choosing a server
 
-Every broker runs its own MT5 Web Terminal host, and each host serves exactly one
-trade server. Give the client the server name and it finds and verifies the host:
+Same flow as the MT5 app: search the company, pick a server from the list, connect.
 
 ```python
-from mt5direct import MT5Client
+from mt5direct import MT5Client, list_servers
 
-client = MT5Client.from_server("Exness-MT5Trial6")   # resolves mt5trial6.exwebterm.com
-client = MT5Client(server="Exness-MT5Real8")         # same thing
+list_servers("finex")
+# ['FinexBisnisSolusi-Demo', 'FinexBisnisSolusi-Real']
+
+client = MT5Client.from_server("FinexBisnisSolusi-Real")
+client.connect()
+client.login(login, password)
 ```
 
-How it works:
+`list_servers` queries MetaQuotes' public directory (about 2,800 MT5 servers).
+`from_server` looks the host up in the web terminal registry, verifies it, and
+connects. `MT5Client(server="...")` does the same.
 
-1. The server name is split into broker and code: `Exness` / `MT5Trial6`.
-2. Candidate hosts are built from a broker-to-domain table
-   (`Exness` → `mt5trial6.exwebterm.com`).
-3. Each candidate's `/terminal` page is fetched and its `__terminal_params`
-   announcement is checked: the host must say it serves exactly that server.
-4. If nothing matches, `ServerNotFound` is raised with the hosts that were tried.
+### How a name becomes a host
 
-Find server names:
+Every broker runs its own MT5 Web Terminal, and each terminal host serves exactly
+one trade server, which it announces in `window.__terminal_params` on its
+`/terminal` page. MetaQuotes publishes server *names* but never these hosts, so
+the library carries a registry and verifies every candidate before using it:
+
+1. **Registry lookup**: a JSON file bundled with the package
+   (`src/mt5direct/data/webterminals.json`), refreshed from GitHub once a day and
+   cached under `~/.cache/mt5direct/`. Exact entries
+   (`FinexBisnisSolusi-Real` → `real-terminal.finex.co.id`,
+   `HFMarketsGlobal-Live3` → `live3.webterminal-hfm.com:1951`) and broker patterns
+   (`Exness` → `{code}.exwebterm.com`).
+2. **Guesses** for brokers not in the registry: a few host patterns that brokers
+   commonly use.
+3. **Verification**: each candidate's `/terminal` page must announce exactly the
+   requested server. A verified guess is remembered in
+   `~/.cache/mt5direct/learned.json` so the next call is instant.
+
+If nothing verifies, `ServerNotFound` tells you what was tried and how to fix it.
+
+### Adding a broker
+
+Open your broker's web terminal in a browser and give that page's URL to the
+library once. It scans the page for `/terminal` hosts, verifies them, and
+remembers them:
 
 ```python
-from mt5direct import list_servers
+from mt5direct import discover_from_url
 
-list_servers("Exness")      # ['Exness-MT5Real', 'Exness-MT5Real10', ..., 'Exness-MT5Trial6']
-list_servers("ICMarkets")
+discover_from_url("https://webterminal.hfm.com/en/mt5")
+# [Endpoint(host='live.webterminal-hfm.com', port=1951, server='HFMarketsGlobal-Live1', ...), ...]
+
+MT5Client.from_server("HFMarketsGlobal-Live1")   # works from now on
 ```
 
-That list comes from MetaQuotes' public server directory (about 2,800 names).
-
-Resolve without connecting:
+Then add the entries to `src/mt5direct/data/webterminals.json` and open a pull
+request so everyone gets them. Or skip all of it and pass the host directly:
 
 ```python
-from mt5direct import resolve_server
-
-ep = resolve_server("Exness-MT5Trial6")
-ep.host, ep.broker, ep.build   # ('mt5trial6.exwebterm.com', 'Exness Technologies Ltd', 6230)
+client = MT5Client(host="live3.webterminal-hfm.com:1951")
 ```
 
-If your broker is not in the table yet, pass the host yourself and, if you like,
-add the pattern:
+### Verified brokers
 
-```python
-client = MT5Client(host="mt5.yourbroker-webterminal.com")
-
-import mt5direct.discovery as d
-d.BROKER_DOMAINS["YourBroker"] = "yourbroker-webterminal.com"   # then from_server() works
-```
-
-To find the host, open your broker's web terminal in a browser and look at the
-address bar: the client connects to `wss://<that host>/terminal`.
+| Broker | Servers | Hosts |
+|--------|---------|-------|
+| Exness | all `Exness-MT5*` | `<code>.exwebterm.com` (pattern) |
+| HFM | `HFMarketsGlobal-Live1..20`, `HFMarkets-Live12`, `HFMarketsGlobal-Demo4` | `live*.webterminal-hfm.com:1951` |
+| Finex | `FinexBisnisSolusi-Real`, `-Demo` | `real-terminal.finex.co.id`, `demo-terminal.finex.co.id` |
+| MetaQuotes | `MetaQuotes-Demo` | `web.metatrader.app` |
 
 Reconnects (`client.reconnect(...)` and the tick listener's automatic reconnect)
 try the resolved host first, then the built-in `TRADE_HOSTS` pool.
 
-Known limits, verified against the live services on 2026-11-23:
+Environment variables: `MT5DIRECT_CACHE_DIR` overrides the cache directory,
+`MT5DIRECT_OFFLINE=1` skips the GitHub refresh.
 
-- `web.metatrader.app` serves only `MetaQuotes-Demo`. Its `?servers=` parameter
-  is ignored, so it is not a universal proxy.
-- MetaQuotes' hosted web terminal (`metatraderweb.app/trade`) uses a different,
-  older protocol and only brokers that opted in are enabled there. Exness is not.
-- The public directory lists names only, never hosts. Host discovery therefore
-  relies on the per-broker domain table above.
+### What does not work, and why
+
+Verified against the live services on 2026-11-23, so nobody has to re-explore:
+
+- `web.metatrader.app` serves only `MetaQuotes-Demo`. Its `?servers=` parameter is
+  ignored; it is not a universal proxy.
+- MetaQuotes' hosted web terminal (`metatraderweb.app/trade`) uses an older,
+  different protocol through `gwt*.mql5.com`, and only opted-in brokers are
+  enabled there. Exness is not.
+- The public directory lists names only, never hosts. The new web terminal's
+  JavaScript makes no HTTP calls at all; it only opens `wss://<its own host>/terminal`.
+- A broker that does not offer an MT5 Web Terminal cannot be reached with this
+  protocol by any means.
 
 ## Quick start
 
@@ -259,8 +284,8 @@ grouped by domain (`client.trading.buy(...)`). Both call the same code.
 
 | Group              | Methods |
 |--------------------|---------|
-| `client`           | `from_server`, `connect`, `close`, `recv_any`, `host`, `endpoint`, `server_id`, `symbol_list`, `symbol_map`, `ta_to_sym` |
-| `mt5direct.discovery` | `resolve_server`, `list_servers`, `inspect_host`, `candidate_hosts`, `BROKER_DOMAINS` |
+| `client`           | `from_server`, `connect`, `close`, `recv_any`, `host`, `address`, `endpoint`, `server_id`, `symbol_list`, `symbol_map`, `ta_to_sym` |
+| `mt5direct.discovery` | `list_servers`, `resolve_server`, `discover_from_url`, `inspect_host`, `load_registry`, `candidate_addresses` |
 | `client.auth`      | `login`, `ping`, `reconnect`, `auto_reconnect` |
 | `client.account`   | `get_account_info`, `init_trading`, `get_history` |
 | `client.symbols`   | `get_symbol_types`, `get_symbols`, `resolve_symbols`, `subscribe`, `subscribe_by_name`, `subscribe_all` |
@@ -317,7 +342,7 @@ list. Return codes are in `mt5direct.RETCODES`; see
 | [docs/errors.md](docs/errors.md) | Exceptions, `None`/empty returns, full return-code table |
 | [docs/architecture.md](docs/architecture.md) | Package layers, dependency rules, how a call travels through the stack |
 | [docs/contributing.md](docs/contributing.md) | Dev setup, tests, commit format, adding a parser or command |
-| [examples/](examples/) | `demo.py` (full walkthrough), `find_server.py`, `stream_ticks.py`, `place_order.py` |
+| [examples/](examples/) | `demo.py` (full walkthrough), `find_server.py` (search → pick → connect), `stream_ticks.py`, `place_order.py` |
 
 ## Development
 

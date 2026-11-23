@@ -18,19 +18,20 @@ class MT5Client:
     Domain operations live on ``auth``, ``account``, ``symbols``, ``market``, ``trading``
     and ``positions``; the flat methods below delegate to them for convenience.
 
-    Pass ``server`` (a trade server name such as ``'Exness-MT5Trial6'``) to resolve the
-    host automatically, or ``host`` to connect to a known web terminal host directly.
+    Pass ``server`` (a trade server name such as ``'Exness-MT5Trial6'``, see
+    ``list_servers``) to look the host up, or ``host`` (``'host'`` or ``'host:port'``)
+    to connect to a web terminal host directly.
     """
 
     def __init__(self, host: Optional[str] = None, server: Optional[str] = None):
         self.endpoint: Optional[Endpoint] = None
         if server and not host:
             self.endpoint = resolve_server(server)
-            host = self.endpoint.host
+            host = self.endpoint.address
         self.session = Session(host or TRADE_HOSTS[0])
         self.state = ClientState()
         if self.endpoint:
-            self.state.preferred_hosts = [self.endpoint.host]
+            self.state.preferred_hosts = [self.endpoint.address]
         self.account = AccountService(self.session, self.state)
         self.symbols = SymbolService(self.session, self.state)
         self.auth = AuthService(self.session, self.state, self.symbols, self.account)
@@ -51,7 +52,11 @@ class MT5Client:
 
     @host.setter
     def host(self, value: str) -> None:
-        self.session.host = value
+        self.session.address = value
+
+    @property
+    def address(self) -> str:
+        return self.session.address
 
     @property
     def server_id(self) -> int:
