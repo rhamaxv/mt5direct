@@ -20,15 +20,16 @@ class MT5Client:
 
     Pass ``server`` (a trade server name such as ``'Exness-MT5Trial6'``, see
     ``list_servers``) to look the host up, or ``host`` (``'host'`` or ``'host:port'``)
-    to connect to a web terminal host directly.
+    to connect to a web terminal host directly. TLS certificates are verified unless
+    ``verify_ssl=False``.
     """
 
-    def __init__(self, host: Optional[str] = None, server: Optional[str] = None):
+    def __init__(self, host: Optional[str] = None, server: Optional[str] = None, verify_ssl: bool = True):
         self.endpoint: Optional[Endpoint] = None
         if server and not host:
             self.endpoint = resolve_server(server)
             host = self.endpoint.address
-        self.session = Session(host or TRADE_HOSTS[0])
+        self.session = Session(host or TRADE_HOSTS[0], verify_ssl=verify_ssl)
         self.state = ClientState()
         if self.endpoint:
             self.state.preferred_hosts = [self.endpoint.address]
@@ -40,9 +41,9 @@ class MT5Client:
         self.positions = PositionService(self.session, self.state, self.trading, self.market)
 
     @classmethod
-    def from_server(cls, server: str) -> "MT5Client":
+    def from_server(cls, server: str, verify_ssl: bool = True) -> "MT5Client":
         """Build a client for a trade server name, e.g. ``MT5Client.from_server('Exness-MT5Trial6')``."""
-        return cls(server=server)
+        return cls(server=server, verify_ssl=verify_ssl)
 
     # -- connection -------------------------------------------------------
 

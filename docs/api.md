@@ -14,14 +14,15 @@ the heading. `Optional[X]` means `X` or `None`.
 ## MT5Client
 
 ```python
-MT5Client(host: str | None = None, server: str | None = None)
-MT5Client.from_server(server: str) -> MT5Client
+MT5Client(host: str | None = None, server: str | None = None, verify_ssl: bool = True)
+MT5Client.from_server(server: str, verify_ssl: bool = True) -> MT5Client
 ```
 
 `server` is a trade server name (`'Exness-MT5Trial6'`); it is resolved and verified
 with `discovery.resolve_server` and may raise `ServerNotFound`. `host` (`'host'` or
 `'host:port'`) connects to a web terminal host directly and wins if both are given. With neither, `TRADE_HOSTS[0]`
-is used. The port and path are fixed.
+is used. The port and path are fixed. `verify_ssl=False` disables TLS certificate
+verification for brokers with self-signed certificates; keep it on otherwise.
 
 | Member | Type | Description |
 |--------|------|-------------|
@@ -523,8 +524,8 @@ Importable from `mt5direct` or `mt5direct.constants`.
 ## AsyncMT5Client
 
 ```python
-AsyncMT5Client(host=None, server=None)
-AsyncMT5Client.from_server(server)
+AsyncMT5Client(host=None, server=None, verify_ssl=True)
+AsyncMT5Client.from_server(server, verify_ssl=True)
 ```
 
 Same methods as `MT5Client`; blocking ones are coroutines run in a worker thread

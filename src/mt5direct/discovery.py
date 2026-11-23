@@ -81,11 +81,9 @@ def split_server_name(name: str) -> tuple[str, str]:
 # -- HTTP ------------------------------------------------------------------
 
 def _fetch(url: str, timeout: float) -> str:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    """HTTPS GET with normal certificate verification."""
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as resp:
         return resp.read().decode("utf-8", "replace")
 
 

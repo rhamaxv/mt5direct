@@ -10,10 +10,11 @@ _OPCODE_BINARY = 0x2
 
 
 class WebSocketTransport:
-    def __init__(self, host: str, port: int = WS_PORT, path: str = WS_PATH):
+    def __init__(self, host: str, port: int = WS_PORT, path: str = WS_PATH, verify_ssl: bool = True):
         self.host = host
         self.port = port
         self.path = path
+        self.verify_ssl = verify_ssl
         self._ws = None
 
     @property
@@ -25,7 +26,8 @@ class WebSocketTransport:
         return self._ws is not None
 
     def open(self, timeout: float = 15) -> None:
-        self._ws = websocket.WebSocket(sslopt={'cert_reqs': ssl.CERT_NONE})
+        sslopt = {'cert_reqs': ssl.CERT_REQUIRED} if self.verify_ssl else {'cert_reqs': ssl.CERT_NONE, 'check_hostname': False}
+        self._ws = websocket.WebSocket(sslopt=sslopt)
         self._ws.connect(self.url, timeout=timeout)
 
     def send_binary(self, data: bytes) -> None:

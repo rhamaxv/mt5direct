@@ -14,12 +14,12 @@ class AsyncMT5Client:
     plain methods. The wrapped client is available as ``.sync``.
     """
 
-    def __init__(self, host: Optional[str] = None, server: Optional[str] = None):
-        self.sync = MT5Client(host=host, server=server)
+    def __init__(self, host: Optional[str] = None, server: Optional[str] = None, verify_ssl: bool = True):
+        self.sync = MT5Client(host=host, server=server, verify_ssl=verify_ssl)
 
     @classmethod
-    def from_server(cls, server: str) -> "AsyncMT5Client":
-        return cls(server=server)
+    def from_server(cls, server: str, verify_ssl: bool = True) -> "AsyncMT5Client":
+        return cls(server=server, verify_ssl=verify_ssl)
 
     async def _run(self, fn, *args, **kwargs):
         return await asyncio.to_thread(functools.partial(fn, *args, **kwargs))

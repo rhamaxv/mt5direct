@@ -7,8 +7,9 @@ exposes; fields marked *unknown* are passed through untouched.
 ## Transport
 
 - `wss://<host>:443/terminal`, binary WebSocket frames.
-- TLS certificate verification is disabled (`CERT_NONE`): brokers commonly
-  serve certificates that do not match the access-point IP.
+- TLS certificates are verified by default. Every broker host seen so far presents a
+  valid certificate (Sectigo, Let's Encrypt, Google Trust Services); pass
+  `verify_ssl=False` to `MT5Client` for a broker that does not.
 
 ## Encryption
 

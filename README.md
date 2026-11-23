@@ -28,6 +28,7 @@ desktop, no Wine, no bridge DLL, and it runs on Linux and macOS.
 - [Documentation](#documentation)
 - [Development](#development)
 - [Releasing](#releasing)
+- [Security](#security)
 - [Disclaimer](#disclaimer)
 
 ## Install
@@ -379,6 +380,21 @@ git tag v0.1.1 && git push origin main --tags
 
 The `Publish to PyPI` workflow runs the tests, checks that the tag matches the
 version, builds, and uploads through PyPI Trusted Publishing.
+
+## Security
+
+- TLS certificates are verified on every connection (WebSocket and discovery).
+  `MT5Client(..., verify_ssl=False)` exists for brokers with self-signed
+  certificates; it exposes your password and orders to anyone on the path, so
+  avoid it.
+- The library never writes credentials to disk. Login id, password and session
+  token live in memory only, for automatic reconnects. Examples read them from
+  environment variables.
+- The server registry is fetched from this repository over HTTPS and cached under
+  `~/.cache/mt5direct/`; `MT5DIRECT_OFFLINE=1` disables the fetch. Every host from
+  the registry is still verified against its own `/terminal` announcement before use.
+- Nothing is sent anywhere except the broker's web terminal host and, for
+  `list_servers`, MetaQuotes' public directory.
 
 ## Disclaimer
 

@@ -34,8 +34,10 @@ class Session:
       what lets a heartbeat ``ping`` or a ``buy`` run while the listener is active.
     """
 
-    def __init__(self, host: str, port: int = WS_PORT):
+    def __init__(self, host: str, port: int = WS_PORT, verify_ssl: bool = True):
         self.host, self.port = host, port
+        self.verify_ssl = verify_ssl
+        """Verify the server certificate (default). Disable only for brokers with self-signed certificates."""
         if ":" in host:
             self.address = host
         self.server_id = 0
@@ -64,7 +66,7 @@ class Session:
 
     def connect(self) -> None:
         """Open the socket and perform the hello handshake, switching to the session key."""
-        self._transport = WebSocketTransport(self.host, self.port)
+        self._transport = WebSocketTransport(self.host, self.port, verify_ssl=self.verify_ssl)
         self._transport.open(timeout=15)
         self.cipher = AesCipher(INITIAL_KEY)
         self.send(CMD_HELLO, _HELLO_PAYLOAD)
