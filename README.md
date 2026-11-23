@@ -9,11 +9,13 @@ Standalone MetaTrader 5 client in pure Python. It speaks the terminal's native
 WebSocket protocol directly to the broker's trade server, so there is no MT5
 desktop, no Wine, no bridge DLL, and it runs on Linux and macOS.
 
-- Login, account info, symbol list, candles, live ticks
-- Market, pending, modify, cancel and close orders
-- Open positions, deal history, floating P&L tracking
-- Automatic reconnect across the broker's server pool
-- Typed results (frozen dataclasses), layered package, offline-testable parsers
+- Login (password or session token), account info and live equity/margin summary
+- Symbol list and trading specifications (contract size, volumes, trade mode)
+- Candles (optionally as a pandas DataFrame), live ticks, trade and position events
+- Market, pending, modify, cancel and close orders; open positions and pending orders
+- Deal and order history with commission, swap, fee, magic and comment
+- Heartbeat and automatic reconnect that re-logs in with the session token
+- Sync and asyncio clients, typed results (frozen dataclasses), offline-testable parsers
 
 **Contents**
 
@@ -141,7 +143,8 @@ Skipping `get_symbols()` leaves ticks unnamed (`symbol="#<id>"`) and
 ### Account
 
 ```python
-acct = client.get_account_info()        # AccountInfo | None
+acct = client.get_account_info()        # balance, credit, currency, leverage, group, server, company, stopout_level
+summary = client.get_account_summary()  # + equity, margin, free_margin, margin_level, profit from open positions
 deals, orders = client.get_history()    # list[Deal], list[HistoryOrder]
 deals, _ = client.get_history(from_ts=1700000000, to_ts=1700600000)
 ```
@@ -153,6 +156,9 @@ for s in client.get_symbols():
     print(s.name, s.digits, s.path)
 
 eurusd = client.symbol_map["EURUSD"]    # Symbol
+
+info = client.get_symbol_info("EURUSD", "XAUUSD")["XAUUSD"]   # SymbolInfo
+info.contract_size, info.volume_min, info.volume_step, info.trade_mode, info.tick_value
 ```
 
 ### Candles
@@ -164,6 +170,9 @@ candles = client.get_candles("XAUUSD", "D1", from_ts=1690000000, to_ts=170000000
 
 Timeframes: `M1 M2 M3 M4 M5 M6 M10 M12 M15 M20 M30 H1 H2 H3 H4 H6 H8 H12 D1 W1 MN1`
 (see `mt5direct.TIMEFRAMES`). Up to `count` most recent candles are returned.
+
+With `pip install 'mt5direct[pandas]'`, `client.get_candles_df(...)` returns a
+DataFrame indexed by UTC time.
 
 ### Live ticks
 
@@ -179,6 +188,23 @@ thread = client.start_tick_listener()   # daemon thread; reconnects on error
 ...
 client.stop_tick_listener()
 ```
+
+Other events from the same listener:
+
+```python
+client.on_trade(lambda r: print(r.retcode_str, r.deal, r.price))     # every execution report
+client.on_position_change(lambda positions: print(len(positions)))   # server pushed a new position list
+```
+
+Keep the session alive and self-healing while the listener runs:
+
+```python
+client.start_heartbeat(interval=30)   # pings; on failure reconnects, re-logs in with the token, re-subscribes
+```
+
+Requests from your main thread (`buy`, `ping`, `get_positions`, ...) are safe while
+the listener is running: replies are routed back to the caller through the session
+queue.
 
 If you prefer to drive the loop yourself, read frames directly:
 
@@ -212,7 +238,12 @@ scale. `0.0` for `sl`/`tp` means "not set".
 
 ```python
 for p in client.get_positions():
-    print(p.ticket, p.type, p.symbol, p.volume, p.price_open, p.sl, p.tp)
+    print(p.ticket, p.type, p.symbol, p.volume, p.price_open, p.profit, p.swap, p.commission, p.margin)
+
+for o in client.get_pending_orders():
+    print(o.ticket, o.symbol, o.price, o.time, o.comment)
+
+positions, pending = client.get_positions_and_orders()   # one round-trip
 
 client.close_position("EURUSD", ticket, lots=0.01, pos_type="BUY")
 closed, total = client.close_all()            # every position
@@ -240,6 +271,21 @@ if ack and ack.retcode == 0:
     result = client.wait_trade_result(timeout=30)
 ```
 
+### asyncio
+
+```python
+from mt5direct import AsyncMT5Client
+
+async with AsyncMT5Client.from_server("Exness-MT5Trial6") as client:
+    await client.login(login, password)
+    await client.get_symbols()
+    acct = await client.get_account_summary()
+    result = await client.buy("EURUSD", 0.01)
+```
+
+Every blocking call runs in a worker thread; callbacks and `start_*`/`stop_*`
+methods are plain functions.
+
 ## API overview
 
 Everything is reachable two ways: flat on the client (`client.buy(...)`) or
@@ -249,12 +295,12 @@ grouped by domain (`client.trading.buy(...)`). Both call the same code.
 |--------------------|---------|
 | `client`           | `from_server`, `connect`, `close`, `recv_any`, `host`, `address`, `endpoint`, `server_id`, `symbol_list`, `symbol_map`, `ta_to_sym` |
 | `mt5direct.discovery` | `list_servers`, `resolve_server`, `discover_from_url`, `inspect_host`, `load_registry`, `candidate_addresses` |
-| `client.auth`      | `login`, `ping`, `reconnect`, `auto_reconnect` |
-| `client.account`   | `get_account_info`, `init_trading`, `get_history` |
-| `client.symbols`   | `get_symbol_types`, `get_symbols`, `resolve_symbols`, `subscribe`, `subscribe_by_name`, `subscribe_all` |
-| `client.market`    | `get_candles`, `parse_tick`, `parse_ticks`, `on_tick`, `start_tick_listener`, `stop_tick_listener` |
+| `client.auth`      | `login`, `login_with_token`, `ping`, `reconnect`, `auto_reconnect` |
+| `client.account`   | `get_account_info`, `get_account_summary`, `init_trading`, `get_history` |
+| `client.symbols`   | `get_symbol_types`, `get_symbols`, `get_symbol_info`, `resolve_symbols`, `subscribe`, `subscribe_by_name`, `subscribe_all` |
+| `client.market`    | `get_candles`, `get_candles_df`, `on_tick`, `on_trade`, `on_position_change`, `start_tick_listener`, `stop_tick_listener`, `start_heartbeat`, `stop_heartbeat` |
 | `client.trading`   | `trade`, `wait_trade_result`, `buy`, `sell`, `buy_limit`, `sell_limit`, `buy_stop`, `sell_stop`, `modify_sl_tp`, `modify_pending`, `cancel_order`, `close_position`, `close_by_order` |
-| `client.positions` | `get_positions`, `close_all`, `track_positions` |
+| `client.positions` | `get_positions`, `get_pending_orders`, `get_positions_and_orders`, `close_all`, `track_positions` |
 
 Full signatures and field lists: [docs/api.md](docs/api.md).
 
@@ -265,14 +311,17 @@ Results are frozen dataclasses from `mt5direct.models`:
 | Model          | Returned by |
 |----------------|-------------|
 | `AccountInfo`  | `get_account_info` |
+| `AccountSummary` | `get_account_summary` |
+| `SymbolInfo`   | `get_symbol_info` |
 | `Symbol`       | `get_symbols`, `symbol_map`, `ta_to_sym` |
 | `Tick`         | tick callbacks, `parse_ticks` |
 | `Candle`       | `get_candles` |
-| `Position`     | `get_positions` |
+| `Position`     | `get_positions`, `on_position_change` |
+| `PendingOrder` | `get_pending_orders` |
 | `PositionPnL`  | `track_positions` callback |
 | `Deal`, `HistoryOrder` | `get_history` |
 | `TradeAck`     | `trade`, and order helpers when rejected up front |
-| `TradeResult`  | `wait_trade_result`, and order helpers on execution |
+| `TradeResult`  | `wait_trade_result`, order helpers on execution, `on_trade` |
 | `Frame`        | `recv_any`, `init_trading`, `ping`, `resolve_symbols` |
 
 Order helpers (`buy`, `sell`, `close_position`, ...) return:

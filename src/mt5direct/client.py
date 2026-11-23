@@ -66,6 +66,8 @@ class MT5Client:
         self.session.connect()
 
     def close(self) -> None:
+        """Stop the listener and heartbeat threads and close the socket."""
+        self.market.stop()
         self.session.close()
 
     def recv_any(self, timeout: float = 5) -> Optional[Frame]:
@@ -97,16 +99,25 @@ class MT5Client:
     def login(self, login_id: int, password: str):
         return self.auth.login(login_id, password)
 
+    def login_with_token(self, login_id: int, token=None):
+        return self.auth.login_with_token(login_id, token)
+
     def ping(self):
         return self.auth.ping()
 
     def reconnect(self, login_id=None, password=None):
         return self.auth.reconnect(login_id, password)
 
+    def auto_reconnect(self):
+        return self.auth.auto_reconnect()
+
     # -- account ----------------------------------------------------------
 
     def get_account_info(self):
         return self.account.get_account_info()
+
+    def get_account_summary(self):
+        return self.account.get_account_summary()
 
     def init_trading(self):
         return self.account.init_trading()
@@ -124,6 +135,9 @@ class MT5Client:
 
     def resolve_symbols(self, ta_list):
         return self.symbols.resolve_symbols(ta_list)
+
+    def get_symbol_info(self, *names):
+        return self.symbols.get_symbol_info(*names)
 
     def subscribe(self, ta_values):
         return self.symbols.subscribe(ta_values)
@@ -154,8 +168,23 @@ class MT5Client:
     def parse_tick(self, data, offset=0):
         return self.market.parse_tick(data, offset)
 
+    def get_candles_df(self, symbol, timeframe='H1', count=1000, **kwargs):
+        return self.market.get_candles_df(symbol, timeframe, count, **kwargs)
+
     def on_tick(self, callback):
         return self.market.on_tick(callback)
+
+    def on_trade(self, callback):
+        return self.market.on_trade(callback)
+
+    def on_position_change(self, callback):
+        return self.market.on_position_change(callback)
+
+    def start_heartbeat(self, interval=30):
+        return self.market.start_heartbeat(interval)
+
+    def stop_heartbeat(self):
+        return self.market.stop_heartbeat()
 
     def start_tick_listener(self, symbols=None):
         return self.market.start_tick_listener(symbols)
@@ -208,6 +237,12 @@ class MT5Client:
 
     def get_positions(self):
         return self.positions.get_positions()
+
+    def get_pending_orders(self):
+        return self.positions.get_pending_orders()
+
+    def get_positions_and_orders(self):
+        return self.positions.get_positions_and_orders()
 
     def close_all(self, symbol=None):
         return self.positions.close_all(symbol)

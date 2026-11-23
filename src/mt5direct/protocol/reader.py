@@ -4,11 +4,11 @@ import struct
 
 
 def read_wchar(data: bytes, offset: int, length: int) -> str:
-    """Decode a fixed-width UTF-16-LE field; empty string if out of range."""
+    """Decode a fixed-width UTF-16-LE field up to its first NUL; empty string if out of range."""
     end = offset + length
     if end > len(data):
         return ""
-    return data[offset:end].decode('utf-16-le', errors='replace').rstrip('\x00')
+    return data[offset:end].decode('utf-16-le', errors='replace').split('\x00', 1)[0]
 
 
 class BinaryReader:

@@ -156,6 +156,20 @@ Sizes and offsets live in `protocol/layouts.py`; decoders in `parsers/`.
 | 9 | f64 | balance |
 | 17 | f64 | credit |
 | 25 | wchar[64] | currency |
+| 89 | u32 | account type (2 = demo) |
+| 93 | u32 | leverage |
+| 97 | wchar[256] | group |
+| 353 | u16 | server id |
+| 355 | wchar[128] | server name |
+| 483 | wchar[128] | company |
+| 752 | f64 | stop-out level |
+
+Fields past 89 bytes are read only when the payload is long enough.
+
+### Login reply (cmd 28)
+
+First 160 bytes: session token. Sending it in the 160-byte buffer of a later login
+request (empty password) re-authenticates without the password.
 
 ### Symbol table (cmd 34)
 
@@ -210,9 +224,31 @@ Payload: 4 unknown bytes, then zlib stream. Decompressed:
 | 108 | f64 | sl |
 | 116 | f64 | tp |
 | 124 | u64 | volume_raw |
+| 132 | f64 | profit |
+| 140 | f64 | swap |
+| 148 | f64 | commission |
+| 16 | u32 | time_open |
+| 160 | i64 | magic |
+| 188 | wchar[64] | comment |
 | 248 | f64 | contract_size |
+| 260 | u32 | digits |
 
 `sl`/`tp` ≥ 1e10 are server placeholders and are reported as `0.0`.
+
+### Pending orders (cmd 4 reply, after the positions)
+
+`u32 count`, then `count` records of equal size (`remaining / count`, ≥ 100 bytes).
+Partially known:
+
+| Offset | Type | Field |
+|--------|------|-------|
+| 0 | i64 | ticket |
+| 72 (fallback 24) | wchar[64] | symbol |
+| 136 | u32 | time |
+| 240 | wchar[64] | comment |
+| 336 | f64 | price |
+
+Values failing plausibility checks (NaN price, time outside 2020–2030) are zeroed.
 
 ### History (cmd 5)
 
@@ -230,8 +266,27 @@ Deal:
 | 160 | f64 | price |
 | 192 | u64 | volume_raw |
 | 200 | f64 | profit |
+| 8 | i64 | order |
+| 168 | f64 | commission |
+| 176 | f64 | swap |
+| 184 | f64 | fee |
+| 256 | wchar[64] | comment |
+| 320 | i64 | magic |
 
-Order: only `i64 order` at offset 0 is decoded.
+Order (356 bytes):
+
+| Offset | Type | Field |
+|--------|------|-------|
+| 0 | i64 | order |
+| 80 | u32 | time |
+| 88 | wchar[64] | symbol |
+| 108 | f64 | sl |
+| 116 | f64 | tp |
+| 152 | u32 | type (`ORDER_TYPE_NAMES`) |
+| 156 | u32 | state (`ORDER_STATE_NAMES`) |
+| 160 | f64 | price |
+| 192 | u64 | volume_raw |
+| 256 | wchar[64] | comment |
 
 ### Trade result (cmd 19), ≥ 380 bytes
 
@@ -253,11 +308,17 @@ Codes 10001/10002/10003 are progress notifications and are skipped by
 
 ### Resolve (cmd 18), 3068 bytes per symbol after a 4-byte header
 
-Only two regions are decoded:
+Decoded regions:
 
 | Offset | Type | Field |
 |--------|------|-------|
-| 1800 | u32 | trade mode |
+| 1456 | f64 | contract size |
+| 1800 | u32 | trade mode (`TRADE_MODE_NAMES`) |
+| 1872 | u64 | volume min (raw) |
+| 1880 | u64 | volume max (raw) |
+| 1888 | u64 | volume step (raw) |
 | 2164 + 64·day | u16, u16 | session start/end minutes, 7 days |
+
+`tick_size = 10^-digits` and `tick_value = contract_size × tick_size` are derived.
 
 `parsers/resolve.py` also carries probe helpers used to locate other fields.

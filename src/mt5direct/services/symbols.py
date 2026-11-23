@@ -2,10 +2,10 @@ import struct
 from typing import Optional, Union
 
 from ..constants.commands import CMD_RESOLVE, CMD_SUBSCRIBE, CMD_SYMBOL_TYPES, CMD_SYMBOLS
-from ..models import Frame, Symbol
+from ..models import Frame, Symbol, SymbolInfo
 from ..parsers import (
-    extract_resolve_prices, find_resolve_bid_offset, parse_symbols, parse_trade_modes,
-    parse_trade_sessions,
+    extract_resolve_prices, find_resolve_bid_offset, parse_symbol_infos, parse_symbols,
+    parse_trade_modes, parse_trade_sessions,
 )
 from .base import BaseService
 
@@ -28,6 +28,16 @@ class SymbolService(BaseService):
 
     def resolve_symbols(self, ta_list: list[int]) -> Optional[Frame]:
         return self.request(CMD_RESOLVE, _ta_payload(ta_list), timeout=15)
+
+    def get_symbol_info(self, *names: str) -> dict[str, SymbolInfo]:
+        """Trading specifications (contract size, volumes, trade mode) for known symbol names."""
+        known = [self.state.symbol_map[n] for n in names if n in self.state.symbol_map]
+        if not known:
+            return {}
+        resp = self.resolve_symbols([s.ta for s in known])
+        if not resp:
+            return {}
+        return parse_symbol_infos(resp.payload, known)
 
     def subscribe(self, ta_values: Union[int, list[int]]) -> None:
         if isinstance(ta_values, int):

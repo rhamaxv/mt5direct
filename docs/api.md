@@ -43,7 +43,13 @@ is used. The port and path are fixed.
 
 ### `login(login_id: int, password: str) -> Frame`
 
-Authenticate. Stores the credentials for `auto_reconnect`. Raises `LoginFailed`.
+Password login. Stores the credentials and the 160-byte session token from the reply
+for `auto_reconnect`. Raises `LoginFailed`.
+
+### `login_with_token(login_id: int, token: bytes | None = None) -> Frame`
+
+Re-login with the token from a previous login (default: the stored one) and no
+password. Raises `ValueError` without a token, `LoginFailed` if the server rejects it.
 
 ### `ping() -> Optional[Frame]`
 
@@ -57,13 +63,20 @@ symbols or re-subscribe.
 
 ### `auto_reconnect() -> bool`
 
-Like `reconnect` but uses the stored credentials and restores state:
-`get_symbols()`, `init_trading()`, `subscribe_all()`. Called by the tick
-listener when the socket fails.
+Like `reconnect` but re-logs in with the stored token first, then the password, and
+restores state: `get_symbols()`, `init_trading()`, `subscribe_all()`. Called by the
+tick listener and the heartbeat when the socket fails.
 
 ## client.account
 
 ### `get_account_info() -> Optional[AccountInfo]`
+
+Static account record. Remembers `leverage` for position margin.
+
+### `get_account_summary() -> Optional[AccountSummary]`
+
+`get_account_info` plus one `init_trading` round-trip; equity, margin and profit are
+computed from the open positions' server-side `profit` and the margin formula below.
 
 ### `init_trading() -> Optional[Frame]`
 
@@ -82,6 +95,11 @@ Unix timestamps. `0, 0` asks for everything the server is willing to send.
 
 Downloads and decompresses the symbol table and refreshes `symbol_list`,
 `symbol_map`, `ta_to_sym`. Empty list on failure.
+
+### `get_symbol_info(*names: str) -> dict[str, SymbolInfo]`
+
+Trading specification per symbol name, decoded from the resolve record. Unknown names
+are skipped.
 
 ### `resolve_symbols(ta_list: list[int]) -> Optional[Frame]`
 
@@ -124,9 +142,18 @@ Partially decoded metadata, kept for research:
 
 Decode tick records using the current symbol table.
 
-### `on_tick(callback: Callable[[Tick], None]) -> None`
+### `get_candles_df(symbol, timeframe='H1', count=1000, **kwargs)`
 
-Register a callback. Exceptions inside callbacks are swallowed.
+`get_candles` as a pandas DataFrame indexed by UTC `time`. Needs the `pandas` extra.
+
+### `on_tick(callback: Callable[[Tick], None]) -> None`
+### `on_trade(callback: Callable[[TradeResult], None]) -> None`
+### `on_position_change(callback: Callable[[list[Position]], None]) -> None`
+
+Register callbacks for frames the listener receives: ticks, every execution report
+(including in-flight codes, check `result.filled` / `result.in_flight`), and the
+position list whenever the server pushes an init-trading frame. Exceptions inside
+callbacks are logged and swallowed.
 
 ### `start_tick_listener(symbols=None) -> threading.Thread`
 
@@ -134,7 +161,18 @@ Start a daemon thread that reads frames and dispatches ticks. On socket
 errors it calls `auth.auto_reconnect()` and retries. `symbols` is accepted for
 compatibility and unused; subscribe beforehand.
 
+While the listener runs it owns the socket. Requests from other threads wait for
+their reply on the session queue, so `ping`, `buy`, `get_positions`, ... remain safe
+to call.
+
 ### `stop_tick_listener() -> None`
+
+### `start_heartbeat(interval=30) -> threading.Thread`
+
+Ping every `interval` seconds on a daemon thread. A failed or timed-out ping triggers
+`auth.auto_reconnect()`.
+
+### `stop_heartbeat() -> None`
 
 ## client.trading
 
@@ -182,7 +220,17 @@ Read frames until a final execution report arrives. Transient codes
 
 ### `get_positions() -> list[Position]`
 
-Sends `init_trading` and decodes the position list from its payload.
+Sends `init_trading` and decodes the position list from its payload. `margin` is
+`volume × contract_size × price_current / leverage` once `get_account_info` has run.
+
+### `get_pending_orders() -> list[PendingOrder]`
+
+Active pending orders from the block after the positions. The record layout is only
+partially known; fields are sanity-checked and may be empty.
+
+### `get_positions_and_orders() -> tuple[list[Position], list[PendingOrder]]`
+
+Both lists from a single round-trip.
 
 ### `close_all(symbol: str | None = None) -> tuple[int, int]`
 
@@ -266,6 +314,36 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `credit` | `float` |
 | `currency` | `str` |
 | `raw` | `Frame` |
+| `account_type` | `int` — 2 = demo |
+| `leverage` | `int` |
+| `group` | `str` |
+| `server_id` | `int` |
+| `server` | `str` — e.g. `Exness-MT5Trial6` |
+| `company` | `str` |
+| `stopout_level` | `float` |
+
+### `AccountSummary`
+| Field | Type |
+|-------|------|
+| `account` | `AccountInfo` |
+| `equity` | `float` — balance + credit + profit |
+| `margin` | `float` |
+| `free_margin` | `float` |
+| `margin_level` | `float` — percent, 0 without margin |
+| `profit` | `float` — sum of position `profit` |
+| `positions_count` | `int` |
+
+### `SymbolInfo`
+| Field | Type |
+|-------|------|
+| `name`, `description`, `path` | `str` |
+| `digits` | `int` |
+| `trade_mode` | `'DISABLED' 'LONGONLY' 'SHORTONLY' 'CLOSEONLY' 'FULL'` |
+| `trade_mode_id` | `int` |
+| `contract_size` | `float` |
+| `tick_size` | `float` — `10 ** -digits` |
+| `tick_value` | `float` — `contract_size × tick_size` |
+| `volume_min`, `volume_max`, `volume_step` | `float` lots |
 
 ### `Symbol`
 | Field | Type |
@@ -308,6 +386,22 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `price_open`, `price_current` | `float` |
 | `sl`, `tp` | `float` — `0.0` if unset |
 | `contract_size` | `float` |
+| `profit` | `float` — server-side floating profit |
+| `swap`, `commission` | `float` |
+| `time_open` | `int` |
+| `magic` | `int` |
+| `comment` | `str` |
+| `digits` | `int` |
+| `margin` | `float` — computed, 0 without leverage |
+
+### `PendingOrder`
+| Field | Type |
+|-------|------|
+| `ticket` | `int` |
+| `symbol` | `str` |
+| `price` | `float` |
+| `time` | `int` — 0 if implausible |
+| `comment` | `str` |
 
 ### `PositionPnL`
 | Field | Type |
@@ -327,11 +421,23 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `price` | `float` |
 | `volume` | `float` lots |
 | `profit` | `float` |
+| `order` | `int` |
+| `commission`, `swap`, `fee` | `float` |
+| `comment` | `str` |
+| `magic` | `int` |
 
 ### `HistoryOrder`
 | Field | Type |
 |-------|------|
 | `order` | `int` |
+| `time` | `int` |
+| `symbol` | `str` |
+| `type` | `str` — `BUY`, `SELL_LIMIT`, ... |
+| `state` | `str` — `PLACED`, `FILLED`, `CANCELED`, ... |
+| `price` | `float` |
+| `volume` | `float` lots |
+| `sl`, `tp` | `float` |
+| `comment` | `str` |
 
 ### `TradeAck`
 | Field | Type |
@@ -354,6 +460,7 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `comment` | `str` |
 
 On failure only `retcode` and `retcode_str` are meaningful; the rest are zero / empty.
+Properties: `filled` (10009/10011) and `in_flight` (10001..10003).
 
 ## Constants
 
@@ -362,9 +469,20 @@ Importable from `mt5direct` or `mt5direct.constants`.
 | Group | Names |
 |-------|-------|
 | Commands | `CMD_HELLO CMD_ACCOUNT CMD_INIT_TRADING CMD_HISTORY CMD_SUBSCRIBE CMD_TICK CMD_SYMBOL_TYPES CMD_CANDLES CMD_TRADE CMD_RESOLVE CMD_TRADE_RESULT CMD_LOGIN CMD_SYMBOLS CMD_PING` |
-| Order types | `ORDER_BUY ORDER_SELL ORDER_BUY_LIMIT ORDER_SELL_LIMIT ORDER_BUY_STOP ORDER_SELL_STOP ORDER_BUY_STOP_LIMIT ORDER_SELL_STOP_LIMIT ORDER_CLOSE_BY` |
+| Order types | `ORDER_BUY ORDER_SELL ORDER_BUY_LIMIT ORDER_SELL_LIMIT ORDER_BUY_STOP ORDER_SELL_STOP ORDER_BUY_STOP_LIMIT ORDER_SELL_STOP_LIMIT ORDER_CLOSE_BY`, `ORDER_TYPE_NAMES`, `ORDER_STATE_NAMES`, `TRADE_MODE_NAMES` |
 | Actions | `EXEC_INSTANT_NOPX EXEC_INSTANT_PX EXEC_MARKET EXEC_EXCHANGE TRADE_ACTION_DEAL TRADE_ACTION_PENDING TRADE_ACTION_SLTP TRADE_ACTION_MODIFY TRADE_ACTION_REMOVE` |
 | Filling / flags | `FILLING_FOK FILLING_IOC FILLING_RETURN FLAGS_NONE FLAGS_XA` |
 | Return codes | `RETCODES` (dict), `RETCODE_DONE`, `RETCODE_DONE_PARTIAL`, `retcode_name(code)` |
 | Timeframes | `TIMEFRAMES` (name → id), `TF_SECONDS` (id → seconds) |
 | Network | `TRADE_HOSTS`, `INITIAL_KEY`, `WS_PORT`, `WS_PATH` |
+
+## AsyncMT5Client
+
+```python
+AsyncMT5Client(host=None, server=None)
+AsyncMT5Client.from_server(server)
+```
+
+Same methods as `MT5Client`; blocking ones are coroutines run in a worker thread
+(`asyncio.to_thread`). `on_*`, `start_*`, `stop_*`, `close` and the state properties are
+plain. Supports `async with`. The wrapped client is `.sync`.

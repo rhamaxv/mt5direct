@@ -15,7 +15,7 @@ class TradeAck:
 
 @dataclass(frozen=True, slots=True)
 class TradeResult:
-    """Final execution report. Only the ``retcode`` fields are meaningful on failure."""
+    """Execution report pushed by the server. Only the ``retcode`` fields are meaningful unless filled."""
 
     retcode: int
     retcode_str: str
@@ -27,3 +27,11 @@ class TradeResult:
     bid: float = 0.0
     ask: float = 0.0
     comment: str = ""
+
+    @property
+    def filled(self) -> bool:
+        return self.retcode in (10009, 10011)
+
+    @property
+    def in_flight(self) -> bool:
+        return self.retcode in (10001, 10002, 10003)

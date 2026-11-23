@@ -1,28 +1,40 @@
+import logging
 import struct
 import threading
 import time
 from typing import Callable, Optional, Union
 
-from ..constants.commands import CMD_CANDLES, CMD_TICK
+from ..constants.commands import CMD_CANDLES, CMD_INIT_TRADING, CMD_TICK, CMD_TRADE_RESULT
 from ..constants.timeframes import TF_SECONDS, TIMEFRAMES
-from ..models import Candle, Tick
-from ..parsers import parse_candles, parse_tick, parse_ticks
+from ..models import Candle, Frame, Position, Tick, TradeResult
+from ..parsers import parse_candles, parse_positions, parse_tick, parse_ticks, parse_trade_result
 from ..protocol import WCHAR, serialize
 from .auth import AuthService
 from .base import BaseService
 
+log = logging.getLogger("mt5direct.market")
+
 TickCallback = Callable[[Tick], None]
+TradeCallback = Callable[[TradeResult], None]
+PositionsCallback = Callable[[list[Position]], None]
 
 _MIN_CANDLE_WINDOW = 7 * 86400
 _RECONNECT_BACKOFF = 5
 
 
 class MarketDataService(BaseService):
+    """Candles, the tick/event listener thread, and the heartbeat thread."""
+
     def __init__(self, session, state, auth: AuthService):
         super().__init__(session, state)
         self._auth = auth
         self._tick_callbacks: list[TickCallback] = []
+        self._trade_callbacks: list[TradeCallback] = []
+        self._position_callbacks: list[PositionsCallback] = []
         self._running = False
+        self._heartbeat_running = False
+
+    # -- candles --------------------------------------------------------------------
 
     def get_candles(self, symbol: str, timeframe: Union[str, int] = 'H1', count: int = 1000,
                     from_ts: Optional[int] = None, to_ts: Optional[int] = None) -> list[Candle]:
@@ -52,40 +64,125 @@ class MarketDataService(BaseService):
             candles = candles[-count:]
         return candles
 
+    def get_candles_df(self, symbol: str, timeframe: Union[str, int] = 'H1', count: int = 1000, **kwargs):
+        """``get_candles`` as a pandas DataFrame indexed by UTC time. Requires ``pip install mt5direct[pandas]``."""
+        try:
+            import pandas as pd
+        except ImportError as e:
+            raise ImportError("pandas is required: pip install 'mt5direct[pandas]'") from e
+        candles = self.get_candles(symbol, timeframe, count, **kwargs)
+        if not candles:
+            return pd.DataFrame()
+        df = pd.DataFrame([c.__dict__ if hasattr(c, '__dict__') else
+                           {f: getattr(c, f) for f in c.__slots__} for c in candles])
+        df['time'] = pd.to_datetime(df['time'], unit='s', utc=True)
+        return df.set_index('time')
+
+    # -- ticks ----------------------------------------------------------------------
+
     def parse_tick(self, data: bytes, offset: int = 0) -> Optional[Tick]:
         return parse_tick(data, offset, self.state.ta_to_sym)
 
     def parse_ticks(self, payload: bytes) -> list[Tick]:
         return parse_ticks(payload, self.state.ta_to_sym)
 
+    # -- events ---------------------------------------------------------------------
+
     def on_tick(self, callback: TickCallback) -> None:
         self._tick_callbacks.append(callback)
 
+    def on_trade(self, callback: TradeCallback) -> None:
+        """Every execution report the server pushes, including in-flight codes."""
+        self._trade_callbacks.append(callback)
+
+    def on_position_change(self, callback: PositionsCallback) -> None:
+        """Called with the full position list whenever the server pushes an init-trading frame."""
+        self._position_callbacks.append(callback)
+
+    def dispatch(self, frame: Frame) -> None:
+        """Route one pushed frame to the registered callbacks."""
+        if frame.cmd == CMD_TICK:
+            for tick in self.parse_ticks(frame.payload):
+                self._emit(self._tick_callbacks, tick, "tick")
+        elif frame.cmd == CMD_TRADE_RESULT:
+            result = parse_trade_result(frame.payload, include_in_flight=True)
+            if result:
+                self._emit(self._trade_callbacks, result, "trade")
+        elif frame.cmd == CMD_INIT_TRADING and self._position_callbacks:
+            self._emit(self._position_callbacks, parse_positions(frame.payload, self.state.leverage), "position")
+
+    @staticmethod
+    def _emit(callbacks, value, kind: str) -> None:
+        for cb in callbacks:
+            try:
+                cb(value)
+            except Exception as e:
+                log.warning("%s callback error: %s", kind, e)
+
+    # -- listener -------------------------------------------------------------------
+
     def start_tick_listener(self, symbols=None) -> threading.Thread:
-        """Dispatch incoming ticks to ``on_tick`` callbacks on a daemon thread; reconnects on error."""
+        """Read frames on a daemon thread and dispatch them; reconnects on socket errors.
+
+        While it runs it owns the socket: requests from other threads (``ping``, ``buy``, ...)
+        receive their replies through the session queue.
+        """
         self._running = True
 
         def _loop():
             while self._running:
                 try:
-                    msg = self.session.recv_any(timeout=1)
-                    if msg and msg.cmd == CMD_TICK:
-                        for tick in self.parse_ticks(msg.payload):
-                            for cb in self._tick_callbacks:
-                                try:
-                                    cb(tick)
-                                except Exception:
-                                    pass
-                except Exception:
+                    frame = self.session.recv_any(timeout=1)
+                    if frame:
+                        self.dispatch(frame)
+                except Exception as e:
+                    log.error("listener error: %s", e)
                     if self._running:
                         try:
                             self._auth.auto_reconnect()
-                        except Exception:
+                        except Exception as e2:
+                            log.error("reconnect failed: %s", e2)
                             time.sleep(_RECONNECT_BACKOFF)
+            self.session.detach_reader()
 
-        t = threading.Thread(target=_loop, daemon=True)
+        t = threading.Thread(target=_loop, name="mt5direct-listener", daemon=True)
+        self.session.attach_reader(t)
         t.start()
         return t
 
     def stop_tick_listener(self) -> None:
         self._running = False
+
+    # -- heartbeat ------------------------------------------------------------------
+
+    def start_heartbeat(self, interval: float = 30) -> threading.Thread:
+        """Ping every ``interval`` seconds on a daemon thread; auto-reconnect when a ping fails."""
+        self._heartbeat_running = True
+
+        def _hb():
+            while self._heartbeat_running:
+                time.sleep(interval)
+                if not self._heartbeat_running:
+                    break
+                try:
+                    if self._auth.ping() is None:
+                        raise TimeoutError("ping timed out")
+                    log.debug("heartbeat OK")
+                except Exception as e:
+                    log.warning("heartbeat failed: %s", e)
+                    if self._heartbeat_running:
+                        try:
+                            self._auth.auto_reconnect()
+                        except Exception as e2:
+                            log.error("heartbeat reconnect failed: %s", e2)
+
+        t = threading.Thread(target=_hb, name="mt5direct-heartbeat", daemon=True)
+        t.start()
+        return t
+
+    def stop_heartbeat(self) -> None:
+        self._heartbeat_running = False
+
+    def stop(self) -> None:
+        self._running = False
+        self._heartbeat_running = False

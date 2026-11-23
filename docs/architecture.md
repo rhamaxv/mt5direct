@@ -3,6 +3,7 @@
 ```
 src/mt5direct/
 ├── client.py          MT5Client facade
+├── aio.py             AsyncMT5Client (to_thread wrapper)
 ├── discovery.py       server name -> verified web terminal host (HTTP, no protocol code)
 ├── data/              webterminals.json registry shipped with the package
 ├── exceptions.py
@@ -54,11 +55,14 @@ constructor. `client.py` is the only place that wires them.
 
 ## Threading
 
-`Session` guards its frame queue with a lock. `start_tick_listener` runs a
-daemon thread that calls `recv_any`; calling request/reply methods from
-another thread at the same time is possible but the reply may be consumed by
-the listener and discarded (it only looks at `CMD_TICK`). Keep request/reply
-traffic on one thread, or stop the listener first.
+`Session` has two reading modes. Without a background reader, `recv` and
+`recv_any` read the socket directly. When `start_tick_listener` runs, its
+thread calls `Session.attach_reader` and becomes the only socket reader; a
+`recv(cmd)` from any other thread registers as a waiter and blocks on a
+`Condition` until the listener hands it the matching frame through the queue.
+The listener's `recv_any` never returns frames for awaited commands. This is
+what makes `start_heartbeat` (pings from a third thread) and trading calls from
+the main thread safe while the listener is running.
 
 ## Testing strategy
 

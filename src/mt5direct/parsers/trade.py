@@ -15,8 +15,12 @@ def parse_trade_ack(frame: Frame) -> TradeAck:
     return TradeAck(retcode=None, retcode_str=None, raw=frame)
 
 
-def parse_trade_result(payload: bytes) -> Optional[TradeResult]:
-    """Decode a trade-result push. ``None`` while the order is still in flight or the frame is short."""
+def parse_trade_result(payload: bytes, include_in_flight: bool = False) -> Optional[TradeResult]:
+    """Decode a trade-result push.
+
+    ``None`` if the frame is short, or while the order is still in flight unless
+    ``include_in_flight`` is set (event listeners want every report).
+    """
     if len(payload) < TRADE_RESULT_MIN_SIZE:
         return None
     r = BinaryReader(payload)
@@ -36,6 +40,6 @@ def parse_trade_result(payload: bytes) -> Optional[TradeResult]:
             ask=r.f64(off + 48),
             comment=r.wchar(off + 64, 64),
         )
-    if rc not in _IN_FLIGHT_CODES:
+    if include_in_flight or rc not in _IN_FLIGHT_CODES:
         return TradeResult(retcode=rc, retcode_str=retcode_name(rc))
     return None

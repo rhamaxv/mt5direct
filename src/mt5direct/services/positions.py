@@ -3,8 +3,8 @@ from typing import Callable, Optional
 
 from ..constants.commands import CMD_INIT_TRADING, CMD_TICK
 from ..constants.retcodes import RETCODE_DONE, RETCODE_DONE_PARTIAL
-from ..models import Position, PositionPnL
-from ..parsers import parse_positions, parse_ticks
+from ..models import PendingOrder, Position, PositionPnL
+from ..parsers import parse_pending_orders, parse_positions, parse_ticks
 from .base import BaseService
 from .trading import TradingService
 
@@ -16,11 +16,21 @@ class PositionService(BaseService):
         super().__init__(session, state)
         self._trading = trading
 
-    def get_positions(self) -> list[Position]:
+    def _init_payload(self) -> bytes:
         resp = self.request(CMD_INIT_TRADING, timeout=10)
-        if not resp:
-            return []
-        return parse_positions(resp.payload)
+        return resp.payload if resp else b''
+
+    def get_positions(self) -> list[Position]:
+        return parse_positions(self._init_payload(), self.state.leverage)
+
+    def get_pending_orders(self) -> list[PendingOrder]:
+        """Active pending orders. Layout is partially known; see ``parse_pending_orders``."""
+        return parse_pending_orders(self._init_payload())
+
+    def get_positions_and_orders(self) -> tuple[list[Position], list[PendingOrder]]:
+        """Both lists from one round-trip."""
+        payload = self._init_payload()
+        return parse_positions(payload, self.state.leverage), parse_pending_orders(payload)
 
     def close_all(self, symbol: Optional[str] = None) -> tuple[int, int]:
         """Close every open position (optionally one symbol). Returns ``(closed, total)``."""

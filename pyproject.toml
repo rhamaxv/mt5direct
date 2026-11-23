@@ -21,6 +21,7 @@ Issues = "https://github.com/rhamaxv/mt5direct/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+pandas = ["pandas>=2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
