@@ -19,6 +19,9 @@ class AuthService(BaseService):
         self._symbols = symbols
         self._account = account
 
+    def _reconnect_hosts(self) -> list[str]:
+        return list(dict.fromkeys([*self.state.preferred_hosts, *TRADE_HOSTS]))
+
     def login(self, login_id: int, password: str) -> Frame:
         device_hash = hashlib.sha1(_DEVICE_FINGERPRINT).digest()[:16]
         payload = serialize([
@@ -47,9 +50,9 @@ class AuthService(BaseService):
         return self.request(CMD_PING, timeout=5)
 
     def reconnect(self, login_id: Optional[int] = None, password: Optional[str] = None) -> bool:
-        """Try each known host in turn; log in if credentials are given."""
+        """Try the preferred host, then each known host; log in if credentials are given."""
         self.session.close()
-        for host in TRADE_HOSTS:
+        for host in self._reconnect_hosts():
             try:
                 self.session.host = host
                 self.session.connect()
@@ -63,7 +66,7 @@ class AuthService(BaseService):
     def auto_reconnect(self) -> bool:
         """Reconnect with stored credentials and restore symbols, trading state and subscriptions."""
         self.session.close()
-        for host in TRADE_HOSTS:
+        for host in self._reconnect_hosts():
             try:
                 self.session.host = host
                 self.session.connect()

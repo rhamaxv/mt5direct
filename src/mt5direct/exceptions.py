@@ -11,3 +11,7 @@ class ConnectionFailed(MT5Error, ConnectionError):
 
 class LoginFailed(MT5Error, ConnectionError):
     """Server rejected the login request."""
+
+
+class ServerNotFound(MT5Error):
+    """No web terminal host could be found or verified for a trade server name."""

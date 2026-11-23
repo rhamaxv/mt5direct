@@ -7,7 +7,7 @@ from mt5direct import MT5Client, TradeResult
 
 
 def main() -> None:
-    with MT5Client() as client:
+    with MT5Client.from_server(os.environ.get("MT5_SERVER", "Exness-MT5Trial6")) as client:
         client.login(int(os.environ["MT5_LOGIN"]), os.environ["MT5_PASSWORD"])
         client.get_symbols()
         client.init_trading()

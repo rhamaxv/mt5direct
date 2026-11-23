@@ -3,6 +3,7 @@
 from typing import Optional
 
 from .constants.network import TRADE_HOSTS
+from .discovery import Endpoint, resolve_server
 from .models import Frame, Symbol
 from .services import (
     AccountService, AuthService, ClientState, MarketDataService, PositionService,
@@ -16,17 +17,31 @@ class MT5Client:
 
     Domain operations live on ``auth``, ``account``, ``symbols``, ``market``, ``trading``
     and ``positions``; the flat methods below delegate to them for convenience.
+
+    Pass ``server`` (a trade server name such as ``'Exness-MT5Trial6'``) to resolve the
+    host automatically, or ``host`` to connect to a known web terminal host directly.
     """
 
-    def __init__(self, host: Optional[str] = None):
+    def __init__(self, host: Optional[str] = None, server: Optional[str] = None):
+        self.endpoint: Optional[Endpoint] = None
+        if server and not host:
+            self.endpoint = resolve_server(server)
+            host = self.endpoint.host
         self.session = Session(host or TRADE_HOSTS[0])
         self.state = ClientState()
+        if self.endpoint:
+            self.state.preferred_hosts = [self.endpoint.host]
         self.account = AccountService(self.session, self.state)
         self.symbols = SymbolService(self.session, self.state)
         self.auth = AuthService(self.session, self.state, self.symbols, self.account)
         self.market = MarketDataService(self.session, self.state, self.auth)
         self.trading = TradingService(self.session, self.state)
         self.positions = PositionService(self.session, self.state, self.trading)
+
+    @classmethod
+    def from_server(cls, server: str) -> "MT5Client":
+        """Build a client for a trade server name, e.g. ``MT5Client.from_server('Exness-MT5Trial6')``."""
+        return cls(server=server)
 
     # -- connection -------------------------------------------------------
 

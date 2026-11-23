@@ -14,6 +14,8 @@ class ClientState:
     ta_to_sym: dict[int, Symbol] = field(default_factory=dict)
     login_id: Optional[int] = None
     password: Optional[str] = None
+    preferred_hosts: list[str] = field(default_factory=list)
+    """Hosts tried before ``TRADE_HOSTS`` on reconnect, e.g. the resolved server host."""
 
     def set_symbols(self, symbols: list[Symbol]) -> None:
         self.symbols = symbols

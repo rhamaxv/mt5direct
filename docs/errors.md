@@ -4,6 +4,7 @@
 
 ```
 MT5Error (Exception)
+├── ServerNotFound                            raised by MT5Client(server=...) / resolve_server()
 ├── ConnectionFailed (also ConnectionError)   raised by connect()
 └── LoginFailed      (also ConnectionError)   raised by login()
 ```

@@ -14,10 +14,14 @@ the heading. `Optional[X]` means `X` or `None`.
 ## MT5Client
 
 ```python
-MT5Client(host: str | None = None)
+MT5Client(host: str | None = None, server: str | None = None)
+MT5Client.from_server(server: str) -> MT5Client
 ```
 
-`host` defaults to `TRADE_HOSTS[0]`. The port and path are fixed.
+`server` is a trade server name (`'Exness-MT5Trial6'`); it is resolved and verified
+with `discovery.resolve_server` and may raise `ServerNotFound`. `host` connects to a
+web terminal host directly and wins if both are given. With neither, `TRADE_HOSTS[0]`
+is used. The port and path are fixed.
 
 | Member | Type | Description |
 |--------|------|-------------|
@@ -25,6 +29,7 @@ MT5Client(host: str | None = None)
 | `close()` | `None` | Close the socket. Safe to call twice. |
 | `recv_any(timeout=5)` | `Optional[Frame]` | Next frame from the queue or the wire. |
 | `host` | `str` | Current server host. Assignable before `connect()` / `reconnect()`. |
+| `endpoint` | `Optional[Endpoint]` | Resolved endpoint when built from a server name. |
 | `server_id` | `int` | Server id from the hello reply. |
 | `symbol_list` | `list[Symbol]` | Symbols from the last `get_symbols()`. |
 | `symbol_map` | `dict[str, Symbol]` | Name to symbol. |
@@ -45,8 +50,8 @@ Round-trip to the server, 5 s timeout.
 
 ### `reconnect(login_id=None, password=None) -> bool`
 
-Close, then try each host in `TRADE_HOSTS` in order; log in if credentials are
-given. Returns `True` on the first host that works. Does not re-download
+Close, then try the resolved server host (if any) followed by each host in
+`TRADE_HOSTS`; log in if credentials are given. Returns `True` on the first host that works. Does not re-download
 symbols or re-subscribe.
 
 ### `auto_reconnect() -> bool`
@@ -188,6 +193,42 @@ Read ticks for `duration` seconds; after each tick frame call
 `callback(list[PositionPnL])` for positions with a known price. Returns the
 last `{symbol: {'bid': ..., 'ask': ...}}` seen. P&L is
 `(current − open) × volume × contract_size`, sign-flipped for sells.
+
+## mt5direct.discovery
+
+Server-name resolution. All functions accept `timeout` and a `fetch(url, timeout) -> str`
+override for testing.
+
+### `resolve_server(name) -> Endpoint`
+
+Build candidate hosts, fetch each `/terminal` page, and return the first host whose
+`__terminal_params.servers` announces `name` (case-insensitive). Raises `ServerNotFound`.
+
+### `list_servers(search=None) -> list[str]`
+
+MT5 server names from MetaQuotes' directory, optionally filtered by substring.
+
+### `inspect_host(host) -> list[Endpoint]`
+
+Servers announced by a web terminal host; empty if unreachable or not a terminal.
+
+### `candidate_hosts(name) -> list[str]`
+
+Unverified host guesses for a server name, from `KNOWN_HOSTS` and `BROKER_DOMAINS`.
+
+### `BROKER_DOMAINS: dict[str, str]`
+
+Broker prefix to web terminal domain, e.g. `{"Exness": "exwebterm.com"}`. Mutable;
+add your broker here.
+
+### `Endpoint`
+| Field | Type |
+|-------|------|
+| `host` | `str` |
+| `server` | `str` |
+| `broker` | `str` — company name from the terminal page |
+| `build` | `int` — server build |
+| `path` | `str` — always `/terminal` |
 
 ## Models
 

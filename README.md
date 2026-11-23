@@ -47,45 +47,69 @@ pip install -e '.[dev]'
 
 ## Choosing a server
 
-Every broker exposes its trade servers over `wss://<host>:443/terminal`. Pass
-the host when you create the client:
+Every broker runs its own MT5 Web Terminal host, and each host serves exactly one
+trade server. Give the client the server name and it finds and verifies the host:
 
 ```python
 from mt5direct import MT5Client
 
-client = MT5Client(host="mt5trial6.exwebterm.com")
+client = MT5Client.from_server("Exness-MT5Trial6")   # resolves mt5trial6.exwebterm.com
+client = MT5Client(server="Exness-MT5Real8")         # same thing
 ```
 
-Where to find the host:
+How it works:
 
-- In the MT5 desktop terminal: **File → Open an Account → search your broker**,
-  then hover a server name; or look at **Tools → Options → Server**.
-- From the broker's `servers.dat` / connection settings; the server name
-  usually resolves to a hostname or a set of IPs.
-- Many brokers run several access points. Any of them accepts the same login.
+1. The server name is split into broker and code: `Exness` / `MT5Trial6`.
+2. Candidate hosts are built from a broker-to-domain table
+   (`Exness` → `mt5trial6.exwebterm.com`).
+3. Each candidate's `/terminal` page is fetched and its `__terminal_params`
+   announcement is checked: the host must say it serves exactly that server.
+4. If nothing matches, `ServerNotFound` is raised with the hosts that were tried.
 
-If you omit `host`, the client uses the first entry of
-`mt5direct.TRADE_HOSTS`, a demo pool that ships with the library:
+Find server names:
 
 ```python
-from mt5direct import TRADE_HOSTS
-print(TRADE_HOSTS)
-# ['mt5trial6.exwebterm.com', '8.219.172.6', '47.236.224.248', ...]
+from mt5direct import list_servers
+
+list_servers("Exness")      # ['Exness-MT5Real', 'Exness-MT5Real10', ..., 'Exness-MT5Trial6']
+list_servers("ICMarkets")
 ```
 
-Reconnect behaviour: `client.reconnect(login, password)` and the automatic
-reconnect inside the tick listener walk through `TRADE_HOSTS` in order and stay
-on the first host that answers. To reconnect against your own broker, change
-the host first:
+That list comes from MetaQuotes' public server directory (about 2,800 names).
+
+Resolve without connecting:
 
 ```python
-client.host = "live-eu-01.yourbroker.com"
-client.connect()
-client.login(login, password)
+from mt5direct import resolve_server
+
+ep = resolve_server("Exness-MT5Trial6")
+ep.host, ep.broker, ep.build   # ('mt5trial6.exwebterm.com', 'Exness Technologies Ltd', 6230)
 ```
 
-The port (`443`) and path (`/terminal`) are fixed by the protocol and live in
-`mt5direct.constants.network`.
+If your broker is not in the table yet, pass the host yourself and, if you like,
+add the pattern:
+
+```python
+client = MT5Client(host="mt5.yourbroker-webterminal.com")
+
+import mt5direct.discovery as d
+d.BROKER_DOMAINS["YourBroker"] = "yourbroker-webterminal.com"   # then from_server() works
+```
+
+To find the host, open your broker's web terminal in a browser and look at the
+address bar: the client connects to `wss://<that host>/terminal`.
+
+Reconnects (`client.reconnect(...)` and the tick listener's automatic reconnect)
+try the resolved host first, then the built-in `TRADE_HOSTS` pool.
+
+Known limits, verified against the live services on 2026-11-23:
+
+- `web.metatrader.app` serves only `MetaQuotes-Demo`. Its `?servers=` parameter
+  is ignored, so it is not a universal proxy.
+- MetaQuotes' hosted web terminal (`metatraderweb.app/trade`) uses a different,
+  older protocol and only brokers that opted in are enabled there. Exness is not.
+- The public directory lists names only, never hosts. Host discovery therefore
+  relies on the per-broker domain table above.
 
 ## Quick start
 
@@ -93,7 +117,7 @@ The port (`443`) and path (`/terminal`) are fixed by the protocol and live in
 import os
 from mt5direct import MT5Client
 
-with MT5Client(host="mt5trial6.exwebterm.com") as client:
+with MT5Client.from_server("Exness-MT5Trial6") as client:
     client.login(int(os.environ["MT5_LOGIN"]), os.environ["MT5_PASSWORD"])
     client.get_symbols()      # download the symbol table (required once)
     client.init_trading()     # open the trading session
@@ -235,7 +259,8 @@ grouped by domain (`client.trading.buy(...)`). Both call the same code.
 
 | Group              | Methods |
 |--------------------|---------|
-| `client`           | `connect`, `close`, `recv_any`, `host`, `server_id`, `symbol_list`, `symbol_map`, `ta_to_sym` |
+| `client`           | `from_server`, `connect`, `close`, `recv_any`, `host`, `endpoint`, `server_id`, `symbol_list`, `symbol_map`, `ta_to_sym` |
+| `mt5direct.discovery` | `resolve_server`, `list_servers`, `inspect_host`, `candidate_hosts`, `BROKER_DOMAINS` |
 | `client.auth`      | `login`, `ping`, `reconnect`, `auto_reconnect` |
 | `client.account`   | `get_account_info`, `init_trading`, `get_history` |
 | `client.symbols`   | `get_symbol_types`, `get_symbols`, `resolve_symbols`, `subscribe`, `subscribe_by_name`, `subscribe_all` |
@@ -274,6 +299,7 @@ Exceptions, all subclasses of `mt5direct.MT5Error`:
 
 | Exception          | Raised by | Meaning |
 |--------------------|-----------|---------|
+| `ServerNotFound`   | `MT5Client(server=...)`, `resolve_server` | No web terminal host announces that server name |
 | `ConnectionFailed` | `connect` | WebSocket opened but the hello handshake failed |
 | `LoginFailed`      | `login`   | Server rejected the credentials |
 
@@ -291,7 +317,7 @@ list. Return codes are in `mt5direct.RETCODES`; see
 | [docs/errors.md](docs/errors.md) | Exceptions, `None`/empty returns, full return-code table |
 | [docs/architecture.md](docs/architecture.md) | Package layers, dependency rules, how a call travels through the stack |
 | [docs/contributing.md](docs/contributing.md) | Dev setup, tests, commit format, adding a parser or command |
-| [examples/](examples/) | `demo.py` (full walkthrough), `stream_ticks.py`, `place_order.py` |
+| [examples/](examples/) | `demo.py` (full walkthrough), `find_server.py`, `stream_ticks.py`, `place_order.py` |
 
 ## Development
 
