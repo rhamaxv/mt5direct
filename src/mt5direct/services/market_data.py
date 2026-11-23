@@ -91,6 +91,14 @@ class MarketDataService(BaseService):
     def on_tick(self, callback: TickCallback) -> None:
         self._tick_callbacks.append(callback)
 
+    def off_tick(self, callback: TickCallback) -> None:
+        if callback in self._tick_callbacks:
+            self._tick_callbacks.remove(callback)
+
+    @property
+    def listener_running(self) -> bool:
+        return self._running
+
     def on_trade(self, callback: TradeCallback) -> None:
         """Every execution report the server pushes, including in-flight codes."""
         self._trade_callbacks.append(callback)
@@ -156,10 +164,11 @@ class MarketDataService(BaseService):
     # -- heartbeat ------------------------------------------------------------------
 
     def start_heartbeat(self, interval: float = 30) -> threading.Thread:
-        """Ping every ``interval`` seconds on a daemon thread; auto-reconnect when a ping fails."""
+        """Ping every ``interval`` seconds on a daemon thread; auto-reconnect after two consecutive failures."""
         self._heartbeat_running = True
 
         def _hb():
+            failures = 0
             while self._heartbeat_running:
                 time.sleep(interval)
                 if not self._heartbeat_running:
@@ -167,12 +176,15 @@ class MarketDataService(BaseService):
                 try:
                     if self._auth.ping() is None:
                         raise TimeoutError("ping timed out")
+                    failures = 0
                     log.debug("heartbeat OK")
                 except Exception as e:
-                    log.warning("heartbeat failed: %s", e)
-                    if self._heartbeat_running:
+                    failures += 1
+                    log.warning("heartbeat failed (%d): %s", failures, e)
+                    if failures >= 2 and self._heartbeat_running:
                         try:
                             self._auth.auto_reconnect()
+                            failures = 0
                         except Exception as e2:
                             log.error("heartbeat reconnect failed: %s", e2)
 

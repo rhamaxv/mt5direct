@@ -15,6 +15,6 @@ def test_facade_exposes_every_service_method():
     expected = set()
     for f in ("auth.py", "account.py", "symbols.py", "market_data.py", "trading.py", "positions.py"):
         expected |= _public_methods(root / f)
-    expected -= {"request", "dispatch", "parse_ticks", "stop", "relogin"}   # internal or service-only helpers
+    expected -= {"request", "dispatch", "parse_ticks", "stop", "relogin", "off_tick", "listener_running"}   # internal or service-only helpers
     missing = expected - set(dir(MT5Client))
     assert not missing, missing

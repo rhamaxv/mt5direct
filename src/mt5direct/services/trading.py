@@ -55,16 +55,22 @@ class TradingService(BaseService):
         return parse_trade_ack(resp) if resp else None
 
     def wait_trade_result(self, timeout: float = 30) -> Optional[TradeResult]:
-        """Block until a final execution report arrives or ``timeout`` elapses."""
+        """Block until a final execution report arrives or ``timeout`` elapses.
+
+        Uses ``Session.recv`` so the report reaches this caller even while the tick
+        listener owns the socket.
+        """
         deadline = time.time() + timeout
-        while time.time() < deadline:
-            msg = self.session.recv_any(timeout=max(0.5, deadline - time.time()))
-            if msg is None or msg.cmd != CMD_TRADE_RESULT:
-                continue
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return None
+            msg = self.session.recv(CMD_TRADE_RESULT, timeout=remaining)
+            if msg is None:
+                return None
             result = parse_trade_result(msg.payload)
             if result is not None:
                 return result
-        return None
 
     def _execute(self, ack: Optional[TradeAck]) -> TradeOutcome:
         if ack and ack.retcode == 0:

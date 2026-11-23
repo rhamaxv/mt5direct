@@ -84,6 +84,35 @@ class Session:
     def send(self, cmd: int, payload: bytes = b'') -> None:
         self._transport.send_binary(encode_frame(self.cipher, cmd, payload))
 
+    def request(self, cmd: int, payload: bytes = b'', timeout: float = 15) -> Optional[Frame]:
+        """Send ``cmd`` and return its reply.
+
+        Frames with the same ``cmd`` already sitting in the queue were pushed by the
+        server before this request and are discarded first, so the reply is never a
+        stale snapshot (the server pushes cmd 4 position lists unprompted).
+        """
+        with self._cond:
+            self._queue = [f for f in self._queue if f.cmd != cmd]
+            if self._reader_elsewhere():
+                self._waiting[cmd] = self._waiting.get(cmd, 0) + 1
+                registered = True
+            else:
+                registered = False
+        try:
+            self.send(cmd, payload)
+            if registered:
+                with self._cond:
+                    self._waiting[cmd] -= 1          # _wait_for re-registers
+                    registered = False
+                    return self._wait_for(cmd, timeout)
+            return self.recv(cmd, timeout)
+        finally:
+            if registered:
+                with self._cond:
+                    self._waiting[cmd] -= 1
+                    if self._waiting[cmd] <= 0:
+                        del self._waiting[cmd]
+
     # -- reader ownership -----------------------------------------------------------
 
     def attach_reader(self, thread: threading.Thread) -> None:
@@ -153,9 +182,10 @@ class Session:
                 del self._waiting[cmd]
 
     def recv_any(self, timeout: float = 5) -> Optional[Frame]:
-        """Next unclaimed frame, queued or fresh; ``None`` on timeout or error.
+        """Next frame, queued or fresh; ``None`` on timeout or error.
 
-        Frames for a command another thread is waiting on go to that waiter instead.
+        A fresh frame another thread is waiting on is also queued for that waiter.
+        Queued frames reserved for waiters are skipped.
         """
         with self._cond:
             for i, f in enumerate(self._queue):
@@ -174,9 +204,7 @@ class Session:
                 continue
             with self._cond:
                 if msg.cmd in self._waiting:
+                    # hand a copy to the waiter; the reader still sees it so events keep firing
                     self._queue.append(msg)
                     self._cond.notify_all()
-                    if time.time() >= deadline:
-                        return None
-                    continue
             return msg

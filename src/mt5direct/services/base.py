@@ -33,6 +33,5 @@ class BaseService:
         self.state = state
 
     def request(self, cmd: int, payload: bytes = b'', timeout: float = 15) -> Optional[Frame]:
-        """Send ``cmd`` and wait for the matching reply."""
-        self.session.send(cmd, payload)
-        return self.session.recv(cmd, timeout=timeout)
+        """Send ``cmd`` and wait for the matching reply (stale pushed frames are discarded)."""
+        return self.session.request(cmd, payload, timeout=timeout)

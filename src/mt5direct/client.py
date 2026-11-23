@@ -37,7 +37,7 @@ class MT5Client:
         self.auth = AuthService(self.session, self.state, self.symbols, self.account)
         self.market = MarketDataService(self.session, self.state, self.auth)
         self.trading = TradingService(self.session, self.state)
-        self.positions = PositionService(self.session, self.state, self.trading)
+        self.positions = PositionService(self.session, self.state, self.trading, self.market)
 
     @classmethod
     def from_server(cls, server: str) -> "MT5Client":
