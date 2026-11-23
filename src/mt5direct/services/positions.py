@@ -4,7 +4,7 @@ from typing import Callable, Optional
 from ..constants.commands import CMD_INIT_TRADING, CMD_TICK
 from ..constants.retcodes import RETCODE_DONE, RETCODE_DONE_PARTIAL
 from ..models import PendingOrder, Position, PositionPnL
-from ..parsers import parse_pending_orders, parse_positions, parse_ticks
+from ..parsers import parse_ticks
 from .base import BaseService
 from .market_data import MarketDataService
 from .trading import TradingService
@@ -18,21 +18,33 @@ class PositionService(BaseService):
         self._trading = trading
         self._market = market
 
-    def _init_payload(self) -> bytes:
+    def _ensure_book(self) -> None:
+        """Seed the book from the login snapshot once, then absorb pending pushes."""
+        if not self.state.book.seeded:
+            resp = self.request(CMD_INIT_TRADING, timeout=10)
+            if resp:
+                self._market.dispatch(resp)
+        self._market.pump()
+
+    def refresh(self) -> None:
+        """Re-seed the book from a fresh init-trading request (normally not needed)."""
         resp = self.request(CMD_INIT_TRADING, timeout=10)
-        return resp.payload if resp else b''
+        if resp:
+            self._market.dispatch(resp)
 
     def get_positions(self) -> list[Position]:
-        return parse_positions(self._init_payload(), self.state.leverage)
+        """Open positions, current as of the last trade transaction received."""
+        self._ensure_book()
+        return list(self.state.book.positions.values())
 
     def get_pending_orders(self) -> list[PendingOrder]:
-        """Active pending orders. Layout is partially known; see ``parse_pending_orders``."""
-        return parse_pending_orders(self._init_payload())
+        """Active pending orders, current as of the last trade transaction received."""
+        self._ensure_book()
+        return list(self.state.book.pending.values())
 
     def get_positions_and_orders(self) -> tuple[list[Position], list[PendingOrder]]:
-        """Both lists from one round-trip."""
-        payload = self._init_payload()
-        return parse_positions(payload, self.state.leverage), parse_pending_orders(payload)
+        self._ensure_book()
+        return list(self.state.book.positions.values()), list(self.state.book.pending.values())
 
     def close_all(self, symbol: Optional[str] = None) -> tuple[int, int]:
         """Close every open position (optionally one symbol). Returns ``(closed, total)``."""

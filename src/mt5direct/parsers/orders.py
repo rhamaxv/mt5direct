@@ -3,7 +3,13 @@
 from ..constants.orders import ORDER_STATE_NAMES, ORDER_TYPE_NAMES
 from ..models import HistoryOrder, PendingOrder
 from ..protocol import BinaryReader, raw_to_vol
+from typing import Optional
+
 from ..protocol.layouts import ORDER_RECORD_SIZE
+
+
+def _clean(v: float) -> float:
+    return v if 0 < v < 1e10 else 0.0
 
 
 def _order_fields(rec: BinaryReader) -> dict:
@@ -20,6 +26,8 @@ def _order_fields(rec: BinaryReader) -> dict:
         type_filling=rec.u32(152),
         price=rec.f64(164),
         price_current=rec.f64(180),
+        sl=_clean(rec.f64(188)),
+        tp=_clean(rec.f64(196)),
         volume=raw_to_vol(rec.u64(204)),
         volume_current=raw_to_vol(rec.u64(212)),
         position_id=rec.i64(232),
@@ -27,6 +35,17 @@ def _order_fields(rec: BinaryReader) -> dict:
         contract_size=rec.f64(304),
         digits=rec.u32(312),
     )
+
+
+def parse_order_record(rec: bytes) -> Optional[dict]:
+    """One 356-byte order record as a field dict, or ``None`` if it is empty."""
+    if len(rec) < ORDER_RECORD_SIZE:
+        return None
+    r = BinaryReader(rec[:ORDER_RECORD_SIZE])
+    ticket = r.i64(0)
+    if ticket <= 0:
+        return None
+    return dict(ticket=ticket, **_order_fields(r))
 
 
 def parse_order_records(data: bytes, count: int) -> list[dict]:
@@ -54,6 +73,6 @@ def to_pending_order(f: dict) -> PendingOrder:
         ticket=f['ticket'], symbol=f['symbol'], type=f['type'], type_id=f['type_id'],
         price=f['price'], price_current=f['price_current'], volume=f['volume'],
         volume_current=f['volume_current'], time_setup=f['time_setup'], comment=f['comment'],
-        state=f['state'], type_filling=f['type_filling'], contract_size=f['contract_size'],
-        digits=f['digits'],
+        sl=f['sl'], tp=f['tp'], state=f['state'], state_id=f['state_id'],
+        type_filling=f['type_filling'], contract_size=f['contract_size'], digits=f['digits'],
     )

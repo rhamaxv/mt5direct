@@ -193,7 +193,8 @@ Other events from the same listener:
 
 ```python
 client.on_trade(lambda r: print(r.retcode_str, r.deal, r.price))     # every execution report
-client.on_position_change(lambda positions: print(len(positions)))   # server pushed a new position list
+client.on_transaction(lambda tx: print(tx.kind, tx.deal, tx.position)) # every order/deal/position event
+client.on_position_change(lambda positions: print(len(positions)))   # open positions after each change
 ```
 
 Keep the session alive and self-healing while the listener runs:

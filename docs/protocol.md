@@ -79,12 +79,13 @@ Strings are therefore fixed-width: a 64-byte `WCHAR` holds 32 characters.
 | 0 | HELLO | → | 64 zero bytes | server id, session key |
 | 28 | LOGIN | → | see below | status only |
 | 3 | ACCOUNT | → | empty | account record |
-| 4 | INIT_TRADING | → | empty | position list |
+| 4 | INIT_TRADING | → | empty | position + pending order snapshot at login time |
 | 9 | SYMBOL_TYPES | → | empty | opaque |
 | 34 | SYMBOLS | → | empty | zlib symbol table |
 | 18 | RESOLVE | → | `u32 n, n × u32 ta` | 3068-byte record per symbol |
 | 7 | SUBSCRIBE | → | `u32 n, n × u32 ta` | none |
 | 8 | TICK | ← | 50-byte tick records | |
+| 10 | TRADE_TRANSACTION | ← | trade events, see below | |
 | 11 | CANDLES | → | `wchar[64] symbol, u16 tf, u32 from, u32 to` | 48-byte candle records |
 | 12 | TRADE | → | trade request | `u32 retcode` |
 | 19 | TRADE_RESULT | ← | execution report | |
@@ -260,6 +261,8 @@ bytes. Pending orders and history orders share this layout:
 | 152 | u32 | type_filling |
 | 164 | f64 | price (0 for market orders) |
 | 180 | f64 | price_current (fill price for market orders) |
+| 188 | f64 | sl |
+| 196 | f64 | tp |
 | 204 | u64 | volume_initial (raw) |
 | 212 | u64 | volume_current (raw, 0 when filled) |
 | 220 | u32 | state (`ORDER_STATE_NAMES`: 1 placed, 2 canceled, 4 filled) |
@@ -268,8 +271,6 @@ bytes. Pending orders and history orders share this layout:
 | 304 | f64 | contract_size |
 | 312 | u32 | digits |
 | 336 | f64 | price again |
-
-SL/TP of orders were never set on the records seen; their offsets are unknown.
 
 ### Deal (cmd 5 reply), 356 bytes
 
@@ -283,6 +284,8 @@ SL/TP of orders were never set on the records seen; their offsets are unknown.
 | 156 | u32 | entry (0 in, 1 out) |
 | 160 | f64 | price |
 | 168 | f64 | price of the position (0 on entry deals) |
+| 176 | f64 | sl |
+| 184 | f64 | tp |
 | 192 | u64 | volume_raw |
 | 200 | f64 | profit |
 | 208 | f64 | 1.0 (conversion rate, not decoded) |
@@ -293,6 +296,24 @@ SL/TP of orders were never set on the records seen; their offsets are unknown.
 | 328 | u32 | digits |
 
 Commission, swap and fee were zero on every record seen; offsets unknown.
+
+### Trade transactions (cmd 10)
+
+The position list from cmd 4 is a snapshot that does not change during the session.
+Every later change arrives as a cmd 10 push, one or more events back to back, each
+``[u32 kind][u32 seq][u32 flag]`` plus a record:
+
+| kind | Record | Meaning |
+|------|--------|---------|
+| 0 | order (356 bytes) | an active order changed; `flag` 2 was seen when it filled |
+| 1 | order (356 bytes) | the order was written to history |
+| 2 | deal (356) + position (344) + account tail (48) | a deal happened (`flag` 0) or a position was modified (`flag` 1, deal record all zero) |
+
+A position record with volume 0 means the position is closed. The account tail's
+first f64 is the balance; the rest is not decoded.
+
+The library keeps a position/pending-order book from these events
+(`client.book`, `client.get_positions()`).
 
 ### Trade result (cmd 19), ≥ 380 bytes
 

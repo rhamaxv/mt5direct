@@ -36,7 +36,10 @@ class PendingOrder:
     volume_current: float
     time_setup: int
     comment: str
+    sl: float = 0.0
+    tp: float = 0.0
     state: str = "PLACED"
+    state_id: int = 1
     type_filling: int = 0
     contract_size: float = 0.0
     digits: int = 0

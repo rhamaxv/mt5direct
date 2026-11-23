@@ -108,14 +108,14 @@ class TradingService(BaseService):
 
     def _pending_params(self, order_ticket: int) -> tuple[int, float, float]:
         """``(type, price, volume)`` of an active pending order; the server requires them on modify/remove."""
-        from ..constants.commands import CMD_INIT_TRADING
-        from ..parsers import parse_pending_orders
-        resp = self.request(CMD_INIT_TRADING, timeout=10)
-        if resp:
-            for o in parse_pending_orders(resp.payload):
-                if o.ticket == order_ticket:
-                    return o.type_id, o.price, o.volume
-        return ORDER_BUY, 0.0, 0.0
+        o = self.state.book.pending.get(order_ticket)
+        if o is None:
+            from ..constants.commands import CMD_INIT_TRADING
+            from ..parsers import parse_pending_orders
+            resp = self.request(CMD_INIT_TRADING, timeout=10)
+            if resp:
+                o = next((x for x in parse_pending_orders(resp.payload) if x.ticket == order_ticket), None)
+        return (o.type_id, o.price, o.volume) if o else (ORDER_BUY, 0.0, 0.0)
 
     def modify_pending(self, symbol: str, order_ticket: int, price: float, sl: float = 0.0, tp: float = 0.0,
                        order_type: Optional[int] = None, lots: Optional[float] = None) -> TradeOutcome:

@@ -4,10 +4,13 @@ import threading
 import time
 from typing import Callable, Optional, Union
 
-from ..constants.commands import CMD_CANDLES, CMD_INIT_TRADING, CMD_TICK, CMD_TRADE_RESULT
+from ..constants.commands import CMD_CANDLES, CMD_INIT_TRADING, CMD_TICK, CMD_TRADE_RESULT, CMD_TRADE_TRANSACTION
 from ..constants.timeframes import TF_SECONDS, TIMEFRAMES
-from ..models import Candle, Frame, Position, Tick, TradeResult
-from ..parsers import parse_candles, parse_positions, parse_tick, parse_ticks, parse_trade_result
+from ..models import Candle, Frame, Position, Tick, TradeResult, TradeTransaction
+from ..parsers import (
+    parse_candles, parse_pending_orders, parse_positions, parse_tick, parse_ticks, parse_trade_result,
+    parse_trade_transactions,
+)
 from ..protocol import WCHAR, serialize
 from .auth import AuthService
 from .base import BaseService
@@ -17,6 +20,7 @@ log = logging.getLogger("mt5direct.market")
 TickCallback = Callable[[Tick], None]
 TradeCallback = Callable[[TradeResult], None]
 PositionsCallback = Callable[[list[Position]], None]
+TransactionCallback = Callable[[TradeTransaction], None]
 
 _MIN_CANDLE_WINDOW = 7 * 86400
 _RECONNECT_BACKOFF = 5
@@ -31,6 +35,7 @@ class MarketDataService(BaseService):
         self._tick_callbacks: list[TickCallback] = []
         self._trade_callbacks: list[TradeCallback] = []
         self._position_callbacks: list[PositionsCallback] = []
+        self._transaction_callbacks: list[TransactionCallback] = []
         self._running = False
         self._heartbeat_running = False
 
@@ -104,11 +109,15 @@ class MarketDataService(BaseService):
         self._trade_callbacks.append(callback)
 
     def on_position_change(self, callback: PositionsCallback) -> None:
-        """Called with the full position list whenever the server pushes an init-trading frame."""
+        """Called with the current open positions after every event that changes them."""
         self._position_callbacks.append(callback)
 
+    def on_transaction(self, callback: TransactionCallback) -> None:
+        """Every trade transaction the server pushes: order changes, deals, position updates."""
+        self._transaction_callbacks.append(callback)
+
     def dispatch(self, frame: Frame) -> None:
-        """Route one pushed frame to the registered callbacks."""
+        """Route one pushed frame: ticks, trade results, trade transactions, position snapshots."""
         if frame.cmd == CMD_TICK:
             for tick in self.parse_ticks(frame.payload):
                 self._emit(self._tick_callbacks, tick, "tick")
@@ -116,8 +125,38 @@ class MarketDataService(BaseService):
             result = parse_trade_result(frame.payload, include_in_flight=True)
             if result:
                 self._emit(self._trade_callbacks, result, "trade")
-        elif frame.cmd == CMD_INIT_TRADING and self._position_callbacks:
-            self._emit(self._position_callbacks, parse_positions(frame.payload, self.state.leverage), "position")
+        elif frame.cmd == CMD_TRADE_TRANSACTION:
+            book = self.state.book
+            changed = False
+            for tx in parse_trade_transactions(frame.payload, self.state.leverage):
+                book.apply(tx)
+                changed = changed or tx.position is not None
+                self._emit(self._transaction_callbacks, tx, "transaction")
+            if changed and self._position_callbacks:
+                self._emit(self._position_callbacks, list(book.positions.values()), "position")
+        elif frame.cmd == CMD_INIT_TRADING:
+            self.state.book.seed(parse_positions(frame.payload, self.state.leverage),
+                                 parse_pending_orders(frame.payload))
+            if self._position_callbacks:
+                self._emit(self._position_callbacks, list(self.state.book.positions.values()), "position")
+
+    def pump(self, max_wait: float = 0.3) -> int:
+        """Read and dispatch frames already available on the socket (no listener running).
+
+        Returns the number of frames handled. Lets ``get_positions`` reflect trades made
+        on this connection without a background thread.
+        """
+        if self._running:
+            return 0
+        handled = 0
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            frame = self.session.recv_any(timeout=0.05)
+            if frame is None:
+                break
+            self.dispatch(frame)
+            handled += 1
+        return handled
 
     @staticmethod
     def _emit(callbacks, value, kind: str) -> None:

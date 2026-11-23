@@ -180,6 +180,9 @@ class MT5Client:
     def on_position_change(self, callback):
         return self.market.on_position_change(callback)
 
+    def on_transaction(self, callback):
+        return self.market.on_transaction(callback)
+
     def start_heartbeat(self, interval=30):
         return self.market.start_heartbeat(interval)
 
@@ -243,6 +246,14 @@ class MT5Client:
 
     def get_positions_and_orders(self):
         return self.positions.get_positions_and_orders()
+
+    def refresh_positions(self):
+        return self.positions.refresh()
+
+    @property
+    def book(self):
+        """Live position/pending-order book (``positions``, ``pending``, ``balance``)."""
+        return self.state.book
 
     def close_all(self, symbol=None):
         return self.positions.close_all(symbol)

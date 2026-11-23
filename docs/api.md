@@ -31,6 +31,7 @@ is used. The port and path are fixed.
 | `host` | `str` | Current server host. Assigning accepts `host` or `host:port`. |
 | `address` | `str` | `host` or `host:port`. |
 | `endpoint` | `Optional[Endpoint]` | Resolved endpoint when built from a server name. |
+| `book` | `PositionBook` | Live `positions` and `pending` dicts keyed by ticket, plus `balance`. |
 | `server_id` | `int` | Server id from the hello reply. |
 | `symbol_list` | `list[Symbol]` | Symbols from the last `get_symbols()`. |
 | `symbol_map` | `dict[str, Symbol]` | Name to symbol. |
@@ -150,12 +151,18 @@ Decode tick records using the current symbol table.
 
 ### `on_tick(callback: Callable[[Tick], None]) -> None`
 ### `on_trade(callback: Callable[[TradeResult], None]) -> None`
+### `on_transaction(callback: Callable[[TradeTransaction], None]) -> None`
 ### `on_position_change(callback: Callable[[list[Position]], None]) -> None`
 
-Register callbacks for frames the listener receives: ticks, every execution report
-(including in-flight codes, check `result.filled` / `result.in_flight`), and the
-position list whenever the server pushes an init-trading frame. Exceptions inside
-callbacks are logged and swallowed.
+Register callbacks for frames the listener receives: ticks; every execution report
+(including in-flight codes, check `result.filled` / `result.in_flight`); every trade
+transaction (order change, deal, position update); and the full open-position list
+after each event that changed it. Exceptions inside callbacks are logged and swallowed.
+
+### `pump(max_wait=0.3) -> int`
+
+Read and dispatch frames already waiting on the socket when no listener runs.
+Called by `get_positions` and friends.
 
 ### `start_tick_listener(symbols=None) -> threading.Thread`
 
@@ -225,13 +232,20 @@ remove; when not given they are looked up with one `init_trading` round-trip.
 
 ### `get_positions() -> list[Position]`
 
-Sends `init_trading` and decodes the position list from its payload. `margin` is
-`volume × contract_size × price_current / leverage` once `get_account_info` has run.
+Open positions from the live book: seeded by the login snapshot, updated by every
+trade transaction push. Without a listener thread, pending pushes are read first
+(`market.pump()`), so positions opened or closed on this connection show up.
+`margin` is `volume × contract_size × price_current / leverage` once
+`get_account_info` has run.
 
 ### `get_pending_orders() -> list[PendingOrder]`
 
-Active pending orders from the block after the positions. The record layout is only
-partially known; fields are sanity-checked and may be empty.
+Active pending orders from the live book (same mechanism as `get_positions`).
+
+### `refresh() -> None`
+
+Re-seed the book from a fresh `init_trading` request. Rarely needed: the server's
+snapshot is from login time, so the book is normally more current than the snapshot.
 
 ### `get_positions_and_orders() -> tuple[list[Position], list[PendingOrder]]`
 
@@ -408,7 +422,8 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `volume`, `volume_current` | `float` lots |
 | `time_setup` | `int` |
 | `comment` | `str` |
-| `state` | `str` |
+| `sl`, `tp` | `float` |
+| `state`, `state_id` | `str`, `int` |
 | `type_filling` | `int` |
 | `contract_size` | `float` |
 | `digits` | `int` |
@@ -434,6 +449,7 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `order` | `int` |
 | `position_id` | `int` |
 | `price_position` | `float` — open price of the position, 0 on entry deals |
+| `sl`, `tp` | `float` |
 | `comment` | `str` |
 | `contract_size` | `float` |
 | `digits` | `int` |
@@ -449,6 +465,7 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 | `price` | `float` — 0 for market orders |
 | `price_current` | `float` — fill price for market orders |
 | `volume`, `volume_current` | `float` lots |
+| `sl`, `tp` | `float` |
 | `position_id` | `int` |
 | `comment` | `str` |
 | `type_filling` | `int` |
@@ -477,6 +494,17 @@ All are `@dataclass(frozen=True, slots=True)` in `mt5direct.models`.
 
 On failure only `retcode` and `retcode_str` are meaningful; the rest are zero / empty.
 Properties: `filled` (10009/10011) and `in_flight` (10001..10003).
+
+### `TradeTransaction`
+| Field | Type |
+|-------|------|
+| `kind` | `int` — `KIND_ORDER` 0, `KIND_ORDER_HISTORY` 1, `KIND_DEAL` 2 |
+| `seq`, `flag` | `int` |
+| `order` | `Optional[HistoryOrder]` — kinds 0 and 1 |
+| `deal` | `Optional[Deal]` — kind 2, `None` on pure position updates |
+| `position` | `Optional[Position]` — kind 2 |
+| `position_removed` | `bool` — the position was closed |
+| `balance` | `Optional[float]` — account balance after the deal |
 
 ## Constants
 

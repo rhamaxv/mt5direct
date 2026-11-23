@@ -17,6 +17,8 @@ class Deal:
     position_id: int = 0
     price_position: float = 0.0
     """Open price of the position this deal belongs to (0 on entry deals)."""
+    sl: float = 0.0
+    tp: float = 0.0
     comment: str = ""
     contract_size: float = 0.0
     digits: int = 0
@@ -40,6 +42,8 @@ class HistoryOrder:
     """Market price at the last update; the fill price for market orders."""
     volume: float = 0.0
     volume_current: float = 0.0
+    sl: float = 0.0
+    tp: float = 0.0
     position_id: int = 0
     comment: str = ""
     type_filling: int = 0

@@ -3,7 +3,7 @@ from typing import Optional
 
 from ..constants.commands import CMD_ACCOUNT, CMD_HISTORY, CMD_INIT_TRADING
 from ..models import AccountInfo, AccountSummary, Deal, Frame, HistoryOrder
-from ..parsers import parse_account, parse_history, parse_positions, summarize_account
+from ..parsers import parse_account, parse_history, parse_pending_orders, parse_positions, summarize_account
 from .base import BaseService
 
 
@@ -20,13 +20,17 @@ class AccountService(BaseService):
         info = self.get_account_info()
         if info is None:
             return None
-        resp = self.init_trading()
-        positions = parse_positions(resp.payload, self.state.leverage) if resp else []
-        return summarize_account(info, positions)
+        if not self.state.book.seeded:
+            self.init_trading()
+        return summarize_account(info, list(self.state.book.positions.values()))
 
     def init_trading(self) -> Optional[Frame]:
-        """Raw init-trading reply; its payload carries the open positions and pending orders."""
-        return self.request(CMD_INIT_TRADING, timeout=10)
+        """Open the trading session. The reply seeds the position book."""
+        resp = self.request(CMD_INIT_TRADING, timeout=10)
+        if resp:
+            self.state.book.seed(parse_positions(resp.payload, self.state.leverage),
+                                 parse_pending_orders(resp.payload))
+        return resp
 
     def get_history(self, from_ts: int = 0, to_ts: int = 0) -> tuple[list[Deal], list[HistoryOrder]]:
         resp = self.request(CMD_HISTORY, struct.pack('<II', from_ts, to_ts), timeout=30)
