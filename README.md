@@ -85,34 +85,6 @@ the library carries a registry and verifies every candidate before using it:
 
 If nothing verifies, `ServerNotFound` tells you what was tried and how to fix it.
 
-### Adding a broker
-
-Open your broker's web terminal in a browser and give that page's URL to the
-library once. It scans the page for `/terminal` hosts, verifies them, and
-remembers them:
-
-```python
-from mt5direct import discover_from_url
-
-discover_from_url("https://webterminal.hfm.com/en/mt5")
-# [Endpoint(host='live.webterminal-hfm.com', port=1951, server='HFMarketsGlobal-Live1', ...), ...]
-
-MT5Client.from_server("HFMarketsGlobal-Live1")   # works from now on
-```
-
-Then add the entries to `src/mt5direct/data/webterminals.json` and open a pull
-request so everyone gets them. Or skip all of it and pass the host directly:
-
-```python
-client = MT5Client(host="live3.webterminal-hfm.com:1951")
-```
-
-Reconnects (`client.reconnect(...)` and the tick listener's automatic reconnect)
-try the resolved host first, then the built-in `TRADE_HOSTS` pool.
-
-Environment variables: `MT5DIRECT_CACHE_DIR` overrides the cache directory,
-`MT5DIRECT_OFFLINE=1` skips the GitHub refresh.
-
 ### What does not work, and why
 
 Verified against the live services on 2026-11-23, so nobody has to re-explore:
