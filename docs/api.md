@@ -198,8 +198,9 @@ to call.
 
 ### `start_heartbeat(interval=30) -> threading.Thread`
 
-Ping every `interval` seconds on a daemon thread. A failed or timed-out ping triggers
-`auth.auto_reconnect()`.
+Ping every `interval` seconds on a daemon thread. Starts the listener first if it is
+not running, so only one thread ever reads the socket. Two consecutive failed pings
+trigger `auth.auto_reconnect()`.
 
 ### `stop_heartbeat() -> None`
 

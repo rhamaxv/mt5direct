@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from ..exceptions import ConnectionLost
 from ..models import Frame, PendingOrder, Position, Symbol, TradeTransaction
 from ..models.transaction import KIND_DEAL, KIND_ORDER
 from ..transport import Session
@@ -79,5 +80,11 @@ class BaseService:
         self.state = state
 
     def request(self, cmd: int, payload: bytes = b'', timeout: float = 15) -> Optional[Frame]:
-        """Send ``cmd`` and wait for the matching reply (stale pushed frames are discarded)."""
-        return self.session.request(cmd, payload, timeout=timeout)
+        """Send ``cmd`` and wait for the matching reply (stale pushed frames are discarded).
+
+        ``None`` on timeout or if the connection is gone; callers never see socket errors.
+        """
+        try:
+            return self.session.request(cmd, payload, timeout=timeout)
+        except ConnectionLost:
+            return None

@@ -63,7 +63,9 @@ thread calls `Session.attach_reader` and becomes the only socket reader; a
 `Condition` until the listener hands it the matching frame through the queue.
 The listener's `recv_any` never returns frames for awaited commands. This is
 what makes `start_heartbeat` (pings from a third thread) and trading calls from
-the main thread safe while the listener is running.
+the main thread safe while the listener is running. `start_heartbeat` starts the
+listener itself when needed, and sends are serialized by a lock, so there is never
+more than one reader and sends from several threads cannot interleave.
 
 ## Testing strategy
 

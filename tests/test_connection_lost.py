@@ -100,3 +100,38 @@ def test_auto_reconnect_backoff_doubles_and_resets(monkeypatch):
     auth._account = type("A", (), {"init_trading": lambda self: None})()
     assert auth.auto_reconnect() is True
     assert auth._backoff == 1.0
+
+
+def test_send_on_dead_socket_raises_connection_lost():
+    class DeadSend:
+        is_open = True
+        def send_binary(self, data): raise websocket.WebSocketConnectionClosedException("closed")
+        def recv(self, timeout): raise websocket.WebSocketTimeoutException()
+        def close(self): self.is_open = False
+    s = Session("fake"); s.cipher = AesCipher(KEY); s._transport = DeadSend()
+    with pytest.raises(ConnectionLost):
+        s.send(51, b'')
+    assert not s.is_open
+
+
+def test_request_returns_none_when_connection_is_gone():
+    from mt5direct.services.base import BaseService, ClientState
+    s = Session("fake")   # never connected
+    assert BaseService(s, ClientState()).request(51, timeout=0.2) is None
+
+
+def test_heartbeat_starts_listener_so_only_one_thread_reads():
+    from mt5direct.services.base import ClientState
+    from mt5direct.services.market_data import MarketDataService
+
+    class Idle:
+        is_open = True
+        def recv(self, timeout): time.sleep(min(timeout, 0.05)); raise websocket.WebSocketTimeoutException()
+        def send_binary(self, data): pass
+        def close(self): pass
+    s = Session("fake"); s.cipher = AesCipher(KEY); s._transport = Idle()
+    m = MarketDataService(s, ClientState(), auth=type("A", (), {"ping": lambda self: None, "auto_reconnect": lambda self: False})())
+    assert not m.listener_running
+    m.start_heartbeat(interval=60)
+    assert m.listener_running
+    m.stop(); time.sleep(0.2)

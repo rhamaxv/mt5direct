@@ -51,6 +51,7 @@ class Session:
         self._transport: Optional[WebSocketTransport] = None
         self._queue: list[Frame] = []
         self._cond = threading.Condition()
+        self._send_lock = threading.Lock()
         self._waiting: dict[int, int] = {}
         self._reader: Optional[threading.Thread] = None
 
@@ -102,7 +103,16 @@ class Session:
             log.debug("connection closed")
 
     def send(self, cmd: int, payload: bytes = b'') -> None:
-        self._transport.send_binary(encode_frame(self.cipher, cmd, payload))
+        """Encrypt and send one frame. Serialized with a lock: several threads may send."""
+        if self._transport is None:
+            raise ConnectionLost("not connected")
+        frame = encode_frame(self.cipher, cmd, payload)
+        with self._send_lock:
+            try:
+                self._transport.send_binary(frame)
+            except (websocket.WebSocketException, OSError) as e:
+                self.close()
+                raise ConnectionLost(str(e) or type(e).__name__) from e
 
     def request(self, cmd: int, payload: bytes = b'', timeout: float = 15) -> Optional[Frame]:
         """Send ``cmd`` and return its reply.

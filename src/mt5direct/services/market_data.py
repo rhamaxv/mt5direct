@@ -208,7 +208,13 @@ class MarketDataService(BaseService):
     # -- heartbeat ------------------------------------------------------------------
 
     def start_heartbeat(self, interval: float = 30) -> threading.Thread:
-        """Ping every ``interval`` seconds on a daemon thread; auto-reconnect after two consecutive failures."""
+        """Ping every ``interval`` seconds on a daemon thread; auto-reconnect after two consecutive failures.
+
+        Starts the listener first if it is not running, so exactly one thread ever reads
+        the socket; the ping reply reaches the heartbeat through the session queue.
+        """
+        if not self._running:
+            self.start_tick_listener()
         self._heartbeat_running = True
 
         def _hb():
