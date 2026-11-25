@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -53,7 +54,11 @@ class ClientState:
     login_id: Optional[int] = None
     password: Optional[str] = None
     login_token: Optional[bytes] = None
-    """160-byte session token from the last login reply; allows re-login without the password."""
+    """160-byte session token from the last login reply; re-login without the password."""
+    login_um: int = 0
+    """u64 that follows the token in the login reply; sent back with the token."""
+    device_hash: bytes = field(default_factory=lambda: os.urandom(16))
+    """Per-client device id sent in every login; the token is bound to it."""
     leverage: int = 0
     """From the last ``get_account_info``; used for position margin."""
     book: "PositionBook" = field(default_factory=lambda: PositionBook())

@@ -191,10 +191,15 @@ def parse_terminal_params(page: str) -> Optional[dict]:
 
 def inspect_host(host: str, port: int = DEFAULT_PORT, timeout: float = 10, fetch: Fetcher = _fetch) -> list[Endpoint]:
     """Servers announced by the web terminal at ``host:port``. Empty if unreachable or not a terminal."""
-    try:
-        page = fetch(f"https://{host}:{port}{TERMINAL_PATH}", timeout)
-    except Exception:
-        return []
+    page = None
+    for attempt in range(3):
+        try:
+            page = fetch(f"https://{host}:{port}{TERMINAL_PATH}", timeout)
+            break
+        except Exception:
+            if attempt == 2:
+                return []
+            time.sleep(0.5 * (attempt + 1))
     params = parse_terminal_params(page)
     if not params:
         return []

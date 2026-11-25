@@ -21,6 +21,14 @@ class AsyncMT5Client:
     def from_server(cls, server: str, verify_ssl: bool = True) -> "AsyncMT5Client":
         return cls(server=server, verify_ssl=verify_ssl)
 
+    @classmethod
+    async def resume(cls, path=None, login=None, server=None, verify_ssl=True) -> "AsyncMT5Client":
+        """``MT5Client.resume`` in a worker thread."""
+        sync = await asyncio.to_thread(MT5Client.resume, path, login, server, verify_ssl)
+        self = cls.__new__(cls)
+        self.sync = sync
+        return self
+
     async def _run(self, fn, *args, **kwargs):
         return await asyncio.to_thread(functools.partial(fn, *args, **kwargs))
 
@@ -34,7 +42,9 @@ class AsyncMT5Client:
     # -- connection / auth
     async def connect(self): return await self._run(self.sync.connect)
     async def login(self, login_id, password): return await self._run(self.sync.login, login_id, password)
-    async def login_with_token(self, login_id, token=None): return await self._run(self.sync.login_with_token, login_id, token)
+    async def login_with_token(self, login_id, token=None, um=None): return await self._run(self.sync.login_with_token, login_id, token, um)
+    async def logout(self): return await self._run(self.sync.logout)
+    def save_session(self, path=None): return self.sync.save_session(path)
     async def ping(self): return await self._run(self.sync.ping)
     async def reconnect(self, login_id=None, password=None): return await self._run(self.sync.reconnect, login_id, password)
 

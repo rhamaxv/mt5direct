@@ -33,6 +33,7 @@ verification for brokers with self-signed certificates; keep it on otherwise.
 | `address` | `str` | `host` or `host:port`. |
 | `endpoint` | `Optional[Endpoint]` | Resolved endpoint when built from a server name. |
 | `book` | `PositionBook` | Live `positions` and `pending` dicts keyed by ticket, plus `balance`. |
+| `session.cookie` | `Optional[str]` | Server device cookie (`wt_dtoken=...`) from the upgrade response. |
 | `server_id` | `int` | Server id from the hello reply. |
 | `symbol_list` | `list[Symbol]` | Symbols from the last `get_symbols()`. |
 | `symbol_map` | `dict[str, Symbol]` | Name to symbol. |
@@ -41,6 +42,17 @@ verification for brokers with self-signed certificates; keep it on otherwise.
 
 `MT5Client` is a context manager: `__enter__` calls `connect()`, `__exit__` calls `close()`.
 
+### `save_session(path=None) -> Path`
+
+Write login token, `um`, device id and cookie of the current login to
+`~/.cache/mt5direct/sessions/<login>@<server>.json` (mode 0600). Never the password.
+
+### `MT5Client.resume(path=None, login=None, server=None, verify_ssl=True) -> MT5Client`
+
+Connect with the saved cookie and device id and log in with the saved token; the
+refreshed token is written back. Raises `LoginFailed` when the token is no longer
+accepted.
+
 ## client.auth
 
 ### `login(login_id: int, password: str) -> Frame`
@@ -48,12 +60,16 @@ verification for brokers with self-signed certificates; keep it on otherwise.
 Password login. Stores the credentials and the 160-byte session token from the reply
 for `auto_reconnect`. Raises `LoginFailed`.
 
-### `login_with_token(login_id: int, token: bytes | None = None) -> Frame`
+### `login_with_token(login_id: int, token: bytes | None = None, um: int | None = None) -> Frame`
 
-Re-login with the token from a previous login (default: the stored one) and no
-password. Follows the web terminal's payload but was rejected by the Exness server in
-testing; `auto_reconnect` therefore uses the password first. Raises `ValueError`
-without a token, `LoginFailed` if the server rejects it.
+Re-login with the token from a previous login (default: the stored one), no
+password. The server accepts it only on a connection that presented the
+`wt_dtoken` cookie captured with the token (`Session.cookie`) and the same
+`device_hash`. Raises `ValueError` without a token, `LoginFailed` if rejected.
+
+### `logout() -> None`
+
+Send cmd 2 (best effort) and close the socket. Called by `close()` and before reconnects.
 
 ### `ping() -> Optional[Frame]`
 
@@ -67,7 +83,7 @@ symbols or re-subscribe.
 
 ### `auto_reconnect() -> bool`
 
-Like `reconnect` but re-logs in with the stored password (token only as fallback) and
+Like `reconnect` but re-logs in with the stored token (password as fallback) and
 restores state: `get_symbols()`, `init_trading()`, `subscribe_all()`. Called by the
 tick listener and the heartbeat when the socket fails.
 

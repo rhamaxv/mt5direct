@@ -1,9 +1,11 @@
 """Facade that wires the session and services behind one object."""
 
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 from .constants.network import TRADE_HOSTS
 from .discovery import Endpoint, resolve_server
+from .sessions import SavedSession, default_session_path, read_session, write_session
 from .models import Frame, Symbol
 from .services import (
     AccountService, AuthService, ClientState, MarketDataService, PositionService,
@@ -45,6 +47,44 @@ class MT5Client:
         """Build a client for a trade server name, e.g. ``MT5Client.from_server('Exness-MT5Trial6')``."""
         return cls(server=server, verify_ssl=verify_ssl)
 
+    # -- persistent sessions ----------------------------------------------
+
+    def save_session(self, path: Optional[Union[str, Path]] = None) -> Path:
+        """Write the token, device id and cookie of the current login to disk (never the password).
+
+        Default location: ``~/.cache/mt5direct/sessions/<login>@<server>.json``, mode 0600.
+        """
+        st = self.state
+        if not st.login_id or not st.login_token:
+            raise ValueError("Not logged in; nothing to save.")
+        saved = SavedSession(login=st.login_id, token=st.login_token, um=st.login_um,
+                             device_hash=st.device_hash, cookie=self.session.cookie,
+                             server=self.endpoint.server if self.endpoint else None,
+                             host=None if self.endpoint else self.address)
+        return write_session(saved, Path(path) if path else None)
+
+    @classmethod
+    def resume(cls, path: Optional[Union[str, Path]] = None, login: Optional[int] = None,
+               server: Optional[str] = None, verify_ssl: bool = True) -> "MT5Client":
+        """Connect and log in from a saved session, without a password.
+
+        Give ``path`` or the ``login``/``server`` pair used when saving. Raises
+        ``LoginFailed`` if the server no longer accepts the token; log in with the
+        password once and call ``save_session`` again. The refreshed token is saved back.
+        """
+        if path is None:
+            if login is None:
+                raise ValueError("resume() needs path or login (and server).")
+            path = default_session_path(login, server, None)
+        saved = read_session(Path(path))
+        client = cls(server=saved.server, host=saved.host, verify_ssl=verify_ssl)
+        client.state.device_hash = saved.device_hash
+        client.session.cookie = saved.cookie
+        client.connect()
+        client.auth.login_with_token(saved.login, saved.token, saved.um)
+        client.save_session(path)
+        return client
+
     # -- connection -------------------------------------------------------
 
     @property
@@ -67,9 +107,9 @@ class MT5Client:
         self.session.connect()
 
     def close(self) -> None:
-        """Stop the listener and heartbeat threads and close the socket."""
+        """Stop the listener and heartbeat threads, tell the server goodbye, close the socket."""
         self.market.stop()
-        self.session.close()
+        self.auth.logout()
 
     def recv_any(self, timeout: float = 5) -> Optional[Frame]:
         return self.session.recv_any(timeout=timeout)
@@ -100,8 +140,11 @@ class MT5Client:
     def login(self, login_id: int, password: str):
         return self.auth.login(login_id, password)
 
-    def login_with_token(self, login_id: int, token=None):
-        return self.auth.login_with_token(login_id, token)
+    def login_with_token(self, login_id: int, token=None, um=None):
+        return self.auth.login_with_token(login_id, token, um)
+
+    def logout(self):
+        return self.auth.logout()
 
     def ping(self):
         return self.auth.ping()

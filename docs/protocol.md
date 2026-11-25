@@ -78,7 +78,8 @@ Strings are therefore fixed-width: a 64-byte `WCHAR` holds 32 characters.
 | cmd | Name | Direction | Payload | Reply |
 |-----|------|-----------|---------|-------|
 | 0 | HELLO | → | 64 zero bytes | server id, session key |
-| 28 | LOGIN | → | see below | status only |
+| 28 | LOGIN | → | see below | token (160) + um (u64) |
+| 2 | LOGOUT | → | empty | any |
 | 3 | ACCOUNT | → | empty | account record |
 | 4 | INIT_TRADING | → | empty | position + pending order snapshot at login time |
 | 9 | SYMBOL_TYPES | → | empty | opaque |
@@ -97,17 +98,18 @@ Strings are therefore fixed-width: a 64-byte `WCHAR` holds 32 characters.
 
 ```
 u32 0
-wchar[64]  password
+wchar[64]  password (empty for token login)
 wchar[128] ""
-buf[16]    sha1("Python;1;en-US;1920x1080;mt5standalone")[:16]   (device hash)
+buf[16]    device id (random per client, bound to the login token)
 wchar[64]  ""
 wchar[64]  ""
 u64 0
 wchar[128] ""
-u32 0
-wchar[256] ""
+u32        host name length
+wchar[256] host name
 u64        login
-buf[160]   zeros
+buf[160]   login token (zeros for password login)
+u64        um from the previous login reply (0 for password login)
 u64 0
 ```
 
@@ -175,10 +177,13 @@ Fields past 89 bytes are read only when the payload is long enough.
 
 ### Login reply (cmd 28)
 
-Bytes 0..160: session token; bytes 160..168: a u64 the web terminal sends back as the
-second-to-last field of its next login. Replaying both on a fresh connection was
-rejected by the Exness server (`dd=10`) in testing, so token login is exposed but
-unverified.
+Bytes 0..160: session token; bytes 160..168: a u64 (`um`) sent back as the
+second-to-last field of a token login. A token login succeeds only when the new
+WebSocket connection also presents the `wt_dtoken` cookie that the server set on
+the upgrade response of the connection where the token was issued (`Set-Cookie`,
+max-age ten years), and the same 16-byte device id. Browsers forward that cookie
+automatically; `websocket-client` does not, so the library captures and resends it.
+Without it the server answers `dd=10`.
 
 ### Symbol table (cmd 34)
 

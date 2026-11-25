@@ -5,6 +5,7 @@ src/mt5direct/
 ├── client.py          MT5Client facade
 ├── aio.py             AsyncMT5Client (to_thread wrapper)
 ├── discovery.py       server name -> verified web terminal host (HTTP, no protocol code)
+├── sessions.py        saved-session file (token, cookie, device id; no password)
 ├── data/              webterminals.json registry shipped with the package
 ├── exceptions.py
 ├── constants/         command ids, order constants, retcodes, timeframes, hosts

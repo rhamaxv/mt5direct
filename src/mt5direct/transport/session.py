@@ -6,6 +6,8 @@ import threading
 import time
 from typing import Optional
 
+import websocket
+
 from ..constants.commands import CMD_HELLO
 from ..constants.network import INITIAL_KEY, WS_PORT
 from ..exceptions import ConnectionFailed
@@ -38,6 +40,8 @@ class Session:
         self.host, self.port = host, port
         self.verify_ssl = verify_ssl
         """Verify the server certificate (default). Disable only for brokers with self-signed certificates."""
+        self.cookie: Optional[str] = None
+        """Device cookie from the server; required for token login on later connections."""
         if ":" in host:
             self.address = host
         self.server_id = 0
@@ -64,10 +68,22 @@ class Session:
 
     # -- connection -------------------------------------------------------------
 
+    connect_attempts: int = 5
+    """TCP/TLS opens are retried this many times; links that drop mid-handshake are common."""
+
     def connect(self) -> None:
         """Open the socket and perform the hello handshake, switching to the session key."""
         self._transport = WebSocketTransport(self.host, self.port, verify_ssl=self.verify_ssl)
-        self._transport.open(timeout=15)
+        for attempt in range(1, self.connect_attempts + 1):
+            try:
+                self._transport.open(timeout=15, cookie=self.cookie)
+                break
+            except (OSError, websocket.WebSocketException) as e:
+                if attempt == self.connect_attempts:
+                    raise
+                log.debug("open %s failed (%s), retry %d/%d", self.address, e, attempt, self.connect_attempts)
+                time.sleep(0.5 * attempt)
+        self.cookie = self._transport.cookie
         self.cipher = AesCipher(INITIAL_KEY)
         self.send(CMD_HELLO, _HELLO_PAYLOAD)
         resp = self.recv(CMD_HELLO)

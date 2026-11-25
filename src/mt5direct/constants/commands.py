@@ -1,6 +1,7 @@
 """Protocol command identifiers (u16, little-endian)."""
 
 CMD_HELLO = 0
+CMD_LOGOUT = 2
 CMD_ACCOUNT = 3
 CMD_INIT_TRADING = 4
 CMD_HISTORY = 5

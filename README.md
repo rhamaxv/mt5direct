@@ -273,6 +273,25 @@ if ack and ack.retcode == 0:
     result = client.wait_trade_result(timeout=30)
 ```
 
+### Persistent sessions (no password on later runs)
+
+```python
+client = MT5Client.from_server("Exness-MT5Trial6")
+client.connect()
+client.login(login, password)
+client.save_session()               # ~/.cache/mt5direct/sessions/<login>@Exness-MT5Trial6.json
+
+# any later run, any process:
+client = MT5Client.resume(login=login, server="Exness-MT5Trial6")
+```
+
+What is saved: the login token the server returns, its `um` companion, the
+client's random device id and the server's `wt_dtoken` cookie. The password is
+not saved. The server accepts the token only when the cookie and device id match
+the ones used at login, and the cookie is issued for ten years. Automatic
+reconnects use the same token path. If the server ever rejects the token,
+`resume` raises `LoginFailed`: log in with the password once and save again.
+
 ### asyncio
 
 ```python
@@ -297,7 +316,8 @@ grouped by domain (`client.trading.buy(...)`). Both call the same code.
 |--------------------|---------|
 | `client`           | `from_server`, `connect`, `close`, `recv_any`, `host`, `address`, `endpoint`, `server_id`, `symbol_list`, `symbol_map`, `ta_to_sym` |
 | `mt5direct.discovery` | `list_servers`, `resolve_server`, `discover_from_url`, `inspect_host`, `load_registry`, `candidate_addresses` |
-| `client.auth`      | `login`, `login_with_token`, `ping`, `reconnect`, `auto_reconnect` |
+| `client.auth`      | `login`, `login_with_token`, `logout`, `ping`, `reconnect`, `auto_reconnect` |
+| `client`           | `save_session`, `resume` (persistent login) |
 | `client.account`   | `get_account_info`, `get_account_summary`, `init_trading`, `get_history` |
 | `client.symbols`   | `get_symbol_types`, `get_symbols`, `get_symbol_info`, `resolve_symbols`, `subscribe`, `subscribe_by_name`, `subscribe_all` |
 | `client.market`    | `get_candles`, `get_candles_df`, `on_tick`, `on_trade`, `on_position_change`, `start_tick_listener`, `stop_tick_listener`, `start_heartbeat`, `stop_heartbeat` |
@@ -375,7 +395,7 @@ Tests cover `protocol` and `parsers` with synthetic bytes and need no network.
 2. Commit, tag and push:
 
 ```bash
-git tag v0.2.2 && git push origin main --tags
+git tag v0.3.1 && git push origin main --tags
 ```
 
 The `Publish to PyPI` workflow runs the tests, checks that the tag matches the
@@ -387,9 +407,10 @@ version, builds, and uploads through PyPI Trusted Publishing.
   `MT5Client(..., verify_ssl=False)` exists for brokers with self-signed
   certificates; it exposes your password and orders to anyone on the path, so
   avoid it.
-- The library never writes credentials to disk. Login id, password and session
-  token live in memory only, for automatic reconnects. Examples read them from
-  environment variables.
+- The password is never written to disk. `save_session` stores only the server's
+  login token, cookie and the client's device id (mode 0600); anyone who copies that
+  file can use the account until the token is revoked by a password change, so treat
+  it like a password. Examples read credentials from environment variables.
 - The server registry is fetched from this repository over HTTPS and cached under
   `~/.cache/mt5direct/`; `MT5DIRECT_OFFLINE=1` disables the fetch. Every host from
   the registry is still verified against its own `/terminal` announcement before use.
