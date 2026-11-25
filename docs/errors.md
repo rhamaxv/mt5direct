@@ -6,6 +6,7 @@
 MT5Error (Exception)
 ├── ServerNotFound                            raised by MT5Client(server=...) / resolve_server()
 ├── ConnectionFailed (also ConnectionError)   raised by connect()
+├── ConnectionLost   (also ConnectionError)   raised by recv_any() when the socket dies mid-session
 └── LoginFailed      (also ConnectionError)   raised by login()
 ```
 

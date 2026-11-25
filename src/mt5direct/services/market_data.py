@@ -6,6 +6,7 @@ from typing import Callable, Optional, Union
 
 from ..constants.commands import CMD_CANDLES, CMD_INIT_TRADING, CMD_TICK, CMD_TRADE_RESULT, CMD_TRADE_TRANSACTION
 from ..constants.timeframes import TF_SECONDS, TIMEFRAMES
+from ..exceptions import ConnectionLost
 from ..models import Candle, Frame, Position, Tick, TradeResult, TradeTransaction
 from ..parsers import (
     parse_candles, parse_pending_orders, parse_positions, parse_tick, parse_ticks, parse_trade_result,
@@ -151,7 +152,10 @@ class MarketDataService(BaseService):
         handled = 0
         deadline = time.time() + max_wait
         while time.time() < deadline:
-            frame = self.session.recv_any(timeout=0.05)
+            try:
+                frame = self.session.recv_any(timeout=0.05)
+            except ConnectionLost:
+                break
             if frame is None:
                 break
             self.dispatch(frame)
@@ -169,7 +173,7 @@ class MarketDataService(BaseService):
     # -- listener -------------------------------------------------------------------
 
     def start_tick_listener(self, symbols=None) -> threading.Thread:
-        """Read frames on a daemon thread and dispatch them; reconnects on socket errors.
+        """Read frames on a daemon thread and dispatch them; reconnects the moment the socket dies.
 
         While it runs it owns the socket: requests from other threads (``ping``, ``buy``, ...)
         receive their replies through the session queue.
@@ -182,14 +186,15 @@ class MarketDataService(BaseService):
                     frame = self.session.recv_any(timeout=1)
                     if frame:
                         self.dispatch(frame)
+                except ConnectionLost as e:
+                    if not self._running:
+                        break
+                    log.warning("connection lost (%s); reconnecting", e)
+                    if not self._auth.auto_reconnect():
+                        time.sleep(1)
                 except Exception as e:
                     log.error("listener error: %s", e)
-                    if self._running:
-                        try:
-                            self._auth.auto_reconnect()
-                        except Exception as e2:
-                            log.error("reconnect failed: %s", e2)
-                            time.sleep(_RECONNECT_BACKOFF)
+                    time.sleep(_RECONNECT_BACKOFF)
             self.session.detach_reader()
 
         t = threading.Thread(target=_loop, name="mt5direct-listener", daemon=True)

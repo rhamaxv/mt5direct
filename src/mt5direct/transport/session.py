@@ -10,7 +10,9 @@ import websocket
 
 from ..constants.commands import CMD_HELLO
 from ..constants.network import INITIAL_KEY, WS_PORT
-from ..exceptions import ConnectionFailed
+import socket
+
+from ..exceptions import ConnectionFailed, ConnectionLost
 from ..models import Frame
 from ..protocol import AesCipher, decode_frame, encode_frame
 from .websocket import WebSocketTransport
@@ -149,7 +151,16 @@ class Session:
     # -- receiving ------------------------------------------------------------------
 
     def _recv_raw(self, timeout: float = 15) -> Optional[Frame]:
-        return decode_frame(self.cipher, self._transport.recv(timeout))
+        """One frame from the wire. ``None`` on timeout; ``ConnectionLost`` if the socket is dead."""
+        if self._transport is None:
+            raise ConnectionLost("not connected")
+        try:
+            return decode_frame(self.cipher, self._transport.recv(timeout))
+        except (websocket.WebSocketTimeoutException, socket.timeout, TimeoutError):
+            return None
+        except (websocket.WebSocketException, OSError, ValueError) as e:
+            self.close()
+            raise ConnectionLost(str(e) or type(e).__name__) from e
 
     def _pop(self, cmd: int) -> Optional[Frame]:
         for i, f in enumerate(self._queue):
@@ -169,8 +180,8 @@ class Session:
         while time.time() < deadline:
             try:
                 msg = self._recv_raw(timeout=max(_POLL, deadline - time.time()))
-            except Exception as e:
-                log.debug("recv(%d) interrupted: %s", expected_cmd, e)
+            except ConnectionLost as e:
+                log.debug("recv(%d): connection lost: %s", expected_cmd, e)
                 break
             if msg is None:
                 continue
@@ -200,7 +211,7 @@ class Session:
                 del self._waiting[cmd]
 
     def recv_any(self, timeout: float = 5) -> Optional[Frame]:
-        """Next frame, queued or fresh; ``None`` on timeout or error.
+        """Next frame, queued or fresh; ``None`` on timeout. Raises ``ConnectionLost`` if the socket died.
 
         A fresh frame another thread is waiting on is also queued for that waiter.
         Queued frames reserved for waiters are skipped.
@@ -211,11 +222,7 @@ class Session:
                     return self._queue.pop(i)
         deadline = time.time() + timeout
         while True:
-            try:
-                msg = self._recv_raw(timeout=max(_POLL, deadline - time.time()))
-            except Exception as e:
-                log.debug("recv_any: %s", e)
-                return None
+            msg = self._recv_raw(timeout=max(_POLL, deadline - time.time()))   # raises ConnectionLost
             if msg is None:
                 if time.time() >= deadline:
                     return None

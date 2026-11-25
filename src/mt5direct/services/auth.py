@@ -39,14 +39,15 @@ def login_payload(login_id: int, password: str, token: bytes, um: int, device_ha
 
 
 class AuthService(BaseService):
-    reconnect_min_interval: float = 60.0
-    """Seconds between automatic reconnect attempts, so a flapping link cannot hammer the server."""
+    reconnect_backoff_max: float = 30.0
+    """Automatic reconnects wait 1 s, then 2, 4, ... up to this many seconds between attempts;
+    the wait resets after a successful reconnect."""
 
     def __init__(self, session, state, symbols: SymbolService, account: AccountService):
         super().__init__(session, state)
         self._symbols = symbols
         self._account = account
-        self._last_reconnect = 0.0
+        self._backoff = 1.0
 
     def _reconnect_hosts(self) -> list[str]:
         return list(dict.fromkeys([*self.state.preferred_hosts, *TRADE_HOSTS]))
@@ -62,6 +63,11 @@ class AuthService(BaseService):
         if len(resp.payload) >= _UM_OFFSET + 8:
             self.state.login_um = struct.unpack_from('<Q', resp.payload, _UM_OFFSET)[0]
         log.info("%s OK, account %d", what, login_id)
+        if self.state.after_login:
+            try:
+                self.state.after_login()
+            except Exception as e:
+                log.warning("after_login hook failed: %s", e)
         return resp
 
     def login(self, login_id: int, password: str) -> Frame:
@@ -130,26 +136,28 @@ class AuthService(BaseService):
     def auto_reconnect(self) -> bool:
         """Reconnect, re-login (token, then password), and restore symbols, trading state and subscriptions.
 
-        Rate-limited by ``reconnect_min_interval``.
+        Waits ``_backoff`` seconds first (1 s after a success, doubling on each failure up
+        to ``reconnect_backoff_max``) so a flapping link cannot hammer the server.
         """
-        wait = self.reconnect_min_interval - (time.time() - self._last_reconnect)
-        if wait > 0:
-            log.info("reconnect rate-limited, waiting %.0fs", wait)
-            time.sleep(wait)
-        self._last_reconnect = time.time()
+        if self._backoff > 1:
+            log.info("reconnect backoff %.0fs", self._backoff)
+        time.sleep(self._backoff)
         self.logout()
         for host in self._reconnect_hosts():
             try:
                 self.session.address = host
                 self.session.connect()
                 self.relogin()
+                self._symbols.get_symbol_types()
                 self._symbols.get_symbols()
                 self._account.init_trading()
                 self._symbols.subscribe_all()
                 log.info("auto-reconnect OK via %s", host)
+                self._backoff = 1.0
                 return True
             except Exception as e:
                 log.debug("auto-reconnect via %s failed: %s", host, e)
                 continue
-        log.error("auto-reconnect failed on every host")
+        self._backoff = min(self._backoff * 2, self.reconnect_backoff_max)
+        log.error("auto-reconnect failed on every host; next attempt after %.0fs", self._backoff)
         return False

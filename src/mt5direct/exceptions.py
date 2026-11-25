@@ -15,3 +15,7 @@ class LoginFailed(MT5Error, ConnectionError):
 
 class ServerNotFound(MT5Error):
     """No web terminal host could be found or verified for a trade server name."""
+
+
+class ConnectionLost(MT5Error, ConnectionError):
+    """The socket died mid-session (closed by peer, reset, TLS failure). Reconnect to continue."""

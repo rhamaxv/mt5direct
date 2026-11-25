@@ -201,8 +201,12 @@ client.on_position_change(lambda positions: print(len(positions)))   # open posi
 Keep the session alive and self-healing while the listener runs:
 
 ```python
-client.start_heartbeat(interval=30)   # pings; on failure reconnects, re-logs in with the token, re-subscribes
+client.start_heartbeat(interval=30)   # pings; after two failures reconnects, re-logs in with the token, re-subscribes
 ```
+
+The listener notices a dead socket immediately and reconnects on its own, waiting
+1 s, then 2, 4, ... up to 30 s between failed attempts. A saved session is
+refreshed with the new token after every reconnect.
 
 Requests from your main thread (`buy`, `ping`, `get_positions`, ...) are safe while
 the listener is running: replies are routed back to the caller through the session
@@ -395,7 +399,7 @@ Tests cover `protocol` and `parsers` with synthetic bytes and need no network.
 2. Commit, tag and push:
 
 ```bash
-git tag v0.3.1 && git push origin main --tags
+git tag v0.3.2 && git push origin main --tags
 ```
 
 The `Publish to PyPI` workflow runs the tests, checks that the tag matches the

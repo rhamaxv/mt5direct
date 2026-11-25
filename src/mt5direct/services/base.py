@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from ..models import Frame, PendingOrder, Position, Symbol, TradeTransaction
 from ..models.transaction import KIND_DEAL, KIND_ORDER
@@ -62,6 +62,8 @@ class ClientState:
     leverage: int = 0
     """From the last ``get_account_info``; used for position margin."""
     book: "PositionBook" = field(default_factory=lambda: PositionBook())
+    after_login: Optional[Callable[[], None]] = None
+    """Called after every successful login, e.g. to rewrite a saved session with the fresh token."""
     preferred_hosts: list[str] = field(default_factory=list)
     """``host[:port]`` entries tried before ``TRADE_HOSTS`` on reconnect, e.g. the resolved server host."""
 

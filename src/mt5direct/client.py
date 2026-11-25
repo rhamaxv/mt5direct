@@ -61,7 +61,9 @@ class MT5Client:
                              device_hash=st.device_hash, cookie=self.session.cookie,
                              server=self.endpoint.server if self.endpoint else None,
                              host=None if self.endpoint else self.address)
-        return write_session(saved, Path(path) if path else None)
+        written = write_session(saved, Path(path) if path else None)
+        self.state.after_login = lambda: self.save_session(written)   # keep the file fresh on reconnects
+        return written
 
     @classmethod
     def resume(cls, path: Optional[Union[str, Path]] = None, login: Optional[int] = None,
@@ -82,7 +84,7 @@ class MT5Client:
         client.session.cookie = saved.cookie
         client.connect()
         client.auth.login_with_token(saved.login, saved.token, saved.um)
-        client.save_session(path)
+        client.save_session(path)   # also installs the refresh hook for later reconnects
         return client
 
     # -- connection -------------------------------------------------------

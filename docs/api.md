@@ -28,7 +28,7 @@ verification for brokers with self-signed certificates; keep it on otherwise.
 |--------|------|-------------|
 | `connect()` | `None` | Open the socket and run the hello handshake. Raises `ConnectionFailed`. |
 | `close()` | `None` | Close the socket. Safe to call twice. |
-| `recv_any(timeout=5)` | `Optional[Frame]` | Next frame from the queue or the wire. |
+| `recv_any(timeout=5)` | `Optional[Frame]` | Next frame from the queue or the wire; raises `ConnectionLost` if the socket died. |
 | `host` | `str` | Current server host. Assigning accepts `host` or `host:port`. |
 | `address` | `str` | `host` or `host:port`. |
 | `endpoint` | `Optional[Endpoint]` | Resolved endpoint when built from a server name. |
@@ -84,8 +84,11 @@ symbols or re-subscribe.
 ### `auto_reconnect() -> bool`
 
 Like `reconnect` but re-logs in with the stored token (password as fallback) and
-restores state: `get_symbols()`, `init_trading()`, `subscribe_all()`. Called by the
-tick listener and the heartbeat when the socket fails.
+restores state: `get_symbol_types()`, `get_symbols()`, `init_trading()`,
+`subscribe_all()`. Called by the tick listener the moment the socket dies and by the
+heartbeat after two failed pings. Waits 1 s before the attempt, doubling after each
+failure up to `auth.reconnect_backoff_max` (30 s), reset on success. A saved session
+is rewritten with the fresh token after every successful login.
 
 ## client.account
 
