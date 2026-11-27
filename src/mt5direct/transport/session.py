@@ -54,6 +54,8 @@ class Session:
         self._send_lock = threading.Lock()
         self._waiting: dict[int, int] = {}
         self._reader: Optional[threading.Thread] = None
+        self.last_recv_at: float = 0.0
+        """time.time() of the last frame read from the wire."""
 
     @property
     def is_open(self) -> bool:
@@ -73,13 +75,16 @@ class Session:
 
     connect_attempts: int = 5
     """TCP/TLS opens are retried this many times; links that drop mid-handshake are common."""
+    connect_timeout: float = 10.0
+    queue_limit: int = 2000
+    """Frames kept while nobody drains them (ticks pile up in direct mode); oldest unawaited go first."""
 
     def connect(self) -> None:
         """Open the socket and perform the hello handshake, switching to the session key."""
         self._transport = WebSocketTransport(self.host, self.port, verify_ssl=self.verify_ssl)
         for attempt in range(1, self.connect_attempts + 1):
             try:
-                self._transport.open(timeout=15, cookie=self.cookie)
+                self._transport.open(timeout=self.connect_timeout, cookie=self.cookie)
                 break
             except (OSError, websocket.WebSocketException) as e:
                 if attempt == self.connect_attempts:
@@ -165,12 +170,35 @@ class Session:
         if self._transport is None:
             raise ConnectionLost("not connected")
         try:
-            return decode_frame(self.cipher, self._transport.recv(timeout))
+            frame = decode_frame(self.cipher, self._transport.recv(timeout))
+            self.last_recv_at = time.time()
+            return frame
         except (websocket.WebSocketTimeoutException, socket.timeout, TimeoutError):
             return None
         except (websocket.WebSocketException, OSError, ValueError) as e:
             self.close()
             raise ConnectionLost(str(e) or type(e).__name__) from e
+
+    def _enqueue(self, frame: Frame) -> None:
+        """Append under the lock; when over ``queue_limit`` drop the oldest frames nobody awaits."""
+        self._queue.append(frame)
+        if len(self._queue) > self.queue_limit:
+            keep = [f for f in self._queue if f.cmd in self._waiting]
+            rest = [f for f in self._queue if f.cmd not in self._waiting]
+            self._queue = rest[-(self.queue_limit // 2):] + keep
+        self._cond.notify_all()
+
+    def drop(self, *cmds: int) -> int:
+        """Discard queued frames of ``cmds`` (e.g. stale trade results before a new order)."""
+        with self._cond:
+            before = len(self._queue)
+            self._queue = [f for f in self._queue if f.cmd not in cmds]
+            return before - len(self._queue)
+
+    def clear(self) -> None:
+        with self._cond:
+            self._queue.clear()
+            self._cond.notify_all()
 
     def _pop(self, cmd: int) -> Optional[Frame]:
         for i, f in enumerate(self._queue):
@@ -198,8 +226,7 @@ class Session:
             if msg.cmd == expected_cmd:
                 return msg
             with self._cond:
-                self._queue.append(msg)
-                self._cond.notify_all()
+                self._enqueue(msg)
         return None
 
     def _wait_for(self, cmd: int, timeout: float) -> Optional[Frame]:
@@ -240,6 +267,5 @@ class Session:
             with self._cond:
                 if msg.cmd in self._waiting:
                     # hand a copy to the waiter; the reader still sees it so events keep firing
-                    self._queue.append(msg)
-                    self._cond.notify_all()
+                    self._enqueue(msg)
             return msg

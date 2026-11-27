@@ -65,6 +65,19 @@ class ClientState:
     book: "PositionBook" = field(default_factory=lambda: PositionBook())
     after_login: Optional[Callable[[], None]] = None
     """Called after every successful login, e.g. to rewrite a saved session with the fresh token."""
+    connection_state: str = "disconnected"
+    """``disconnected`` | ``connecting`` | ``connected`` | ``reconnecting``."""
+    connection_callbacks: list = field(default_factory=list)
+
+    def set_connection_state(self, state: str) -> None:
+        if state == self.connection_state:
+            return
+        self.connection_state = state
+        for cb in list(self.connection_callbacks):
+            try:
+                cb(state)
+            except Exception:
+                pass
     preferred_hosts: list[str] = field(default_factory=list)
     """``host[:port]`` entries tried before ``TRADE_HOSTS`` on reconnect, e.g. the resolved server host."""
 

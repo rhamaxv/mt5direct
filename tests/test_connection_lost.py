@@ -89,8 +89,8 @@ def test_auto_reconnect_backoff_doubles_and_resets(monkeypatch):
     monkeypatch.setattr(s, "connect", lambda: (_ for _ in ()).throw(OSError("down")))
     for _ in range(6):
         assert auth.auto_reconnect() is False
-    assert sleeps == [1, 2, 4, 8, 16, 30]
-    assert auth._backoff == 30
+    assert sleeps == [1, 2, 4, 8, 15, 15]
+    assert auth._backoff == 15
     monkeypatch.setattr(s, "connect", lambda: None)
     auth.relogin = lambda: None
     for name in ("get_symbol_types", "get_symbols", "subscribe_all"):

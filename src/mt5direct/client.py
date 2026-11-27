@@ -106,7 +106,26 @@ class MT5Client:
         return self.session.server_id
 
     def connect(self) -> None:
-        self.session.connect()
+        self.state.set_connection_state("connecting")
+        try:
+            self.session.connect()
+        except Exception:
+            self.state.set_connection_state("disconnected")
+            raise
+        self.state.set_connection_state("connected")
+
+    @property
+    def connection_state(self) -> str:
+        """``disconnected`` | ``connecting`` | ``connected`` | ``reconnecting``."""
+        return self.state.connection_state
+
+    @property
+    def is_connected(self) -> bool:
+        return self.state.connection_state == "connected" and self.session.is_open
+
+    def on_connection_change(self, callback) -> None:
+        """``callback(state)`` on every transition; drive a loading or offline indicator from it."""
+        self.state.connection_callbacks.append(callback)
 
     def close(self) -> None:
         """Stop the listener and heartbeat threads, tell the server goodbye, close the socket."""

@@ -205,8 +205,21 @@ client.start_heartbeat(interval=30)   # pings; after two failures reconnects, re
 ```
 
 The listener notices a dead socket immediately and reconnects on its own, waiting
-1 s, then 2, 4, ... up to 30 s between failed attempts. A saved session is
+1 s, then 2, 4, 8, 15 s between failed attempts. TCP keepalive and a stale-socket
+check (no data for 3 × interval) catch links that die silently. A saved session is
 refreshed with the new token after every reconnect.
+
+For a UI, follow the connection instead of guessing from failed calls:
+
+```python
+client.on_connection_change(lambda state: print(state))
+# "connecting" -> "connected" -> "reconnecting" -> "connected" ...
+client.connection_state      # current value
+client.is_connected          # True only while connected and the socket is open
+```
+
+Show a loading state while it is `connecting` or `reconnecting`, data while
+`connected`, and an error only when it stays `disconnected`.
 
 Requests from your main thread (`buy`, `ping`, `get_positions`, ...) are safe while
 the listener is running: replies are routed back to the caller through the session
@@ -399,7 +412,7 @@ Tests cover `protocol` and `parsers` with synthetic bytes and need no network.
 2. Commit, tag and push:
 
 ```bash
-git tag v0.3.3 && git push origin main --tags
+git tag v0.3.4 && git push origin main --tags
 ```
 
 The `Publish to PyPI` workflow runs the tests, checks that the tag matches the

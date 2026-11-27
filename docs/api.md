@@ -31,6 +31,9 @@ verification for brokers with self-signed certificates; keep it on otherwise.
 | `recv_any(timeout=5)` | `Optional[Frame]` | Next frame from the queue or the wire; raises `ConnectionLost` if the socket died. |
 | `host` | `str` | Current server host. Assigning accepts `host` or `host:port`. |
 | `address` | `str` | `host` or `host:port`. |
+| `connection_state` | `str` | `disconnected`, `connecting`, `connected` or `reconnecting`. |
+| `is_connected` | `bool` | `connected` and the socket is open. |
+| `on_connection_change(cb)` | | `cb(state)` on every transition. |
 | `endpoint` | `Optional[Endpoint]` | Resolved endpoint when built from a server name. |
 | `book` | `PositionBook` | Live `positions` and `pending` dicts keyed by ticket, plus `balance`. |
 | `session.cookie` | `Optional[str]` | Server device cookie (`wt_dtoken=...`) from the upgrade response. |
@@ -87,8 +90,9 @@ Like `reconnect` but re-logs in with the stored token (password as fallback) and
 restores state: `get_symbol_types()`, `get_symbols()`, `init_trading()`,
 `subscribe_all()`. Called by the tick listener the moment the socket dies and by the
 heartbeat after two failed pings. Waits 1 s before the attempt, doubling after each
-failure up to `auth.reconnect_backoff_max` (30 s), reset on success. A saved session
-is rewritten with the fresh token after every successful login.
+failure up to `auth.reconnect_backoff_max` (15 s), reset on success. The frame queue
+is cleared and the connect timeout shortened to 5 s during the attempt. A saved
+session is rewritten with the fresh token after every successful login.
 
 ## client.account
 
@@ -210,7 +214,8 @@ All helpers return `TradeAck | TradeResult | None`; see README "Return values".
 
 ### `trade(order_type, symbol, lots, price=0.0, sl=0.0, tp=0.0, comment="", position=0, position_by=0, exec_mode=EXEC_MARKET, filling_ea=FILLING_FOK, flags=FLAGS_XA, deviation=0, order=0, price_trigger=0.0, type_time=0, expiration=0) -> Optional[TradeAck]`
 
-Raw trade request.
+Raw trade request. Stale queued trade acks and results are discarded first so the
+reply can never be paired with an older order.
 
 | Parameter | Constants | Notes |
 |-----------|-----------|-------|

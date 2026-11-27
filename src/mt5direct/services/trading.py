@@ -26,6 +26,7 @@ class TradingService(BaseService):
         Field order follows the official web terminal: price, trigger price (stop-limit),
         SL, TP, then deviation. ``digits`` is taken from the symbol table when known.
         """
+        self.session.drop(CMD_TRADE, CMD_TRADE_RESULT)   # never pair this order with a stale report
         sym = self.state.symbol_map.get(symbol)
         payload = serialize([
             [UINT32, 0],

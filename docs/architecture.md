@@ -65,7 +65,11 @@ The listener's `recv_any` never returns frames for awaited commands. This is
 what makes `start_heartbeat` (pings from a third thread) and trading calls from
 the main thread safe while the listener is running. `start_heartbeat` starts the
 listener itself when needed, and sends are serialized by a lock, so there is never
-more than one reader and sends from several threads cannot interleave.
+more than one reader and sends from several threads cannot interleave. The queue is
+capped (`Session.queue_limit`, oldest unawaited frames go first) so direct-mode
+callers that never drain ticks cannot grow memory without bound. Sockets get TCP
+keepalive (15 s idle, 5 s interval, 3 probes) so a silently dead peer surfaces as
+`ConnectionLost` within about half a minute.
 
 ## Testing strategy
 

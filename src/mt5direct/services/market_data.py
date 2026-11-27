@@ -211,11 +211,14 @@ class MarketDataService(BaseService):
         """Ping every ``interval`` seconds on a daemon thread; auto-reconnect after two consecutive failures.
 
         Starts the listener first if it is not running, so exactly one thread ever reads
-        the socket; the ping reply reaches the heartbeat through the session queue.
+        the socket; the ping reply reaches the heartbeat through the session queue. A socket
+        that stays silent for ``max(3 × interval, 60)`` seconds counts as a failure too.
         """
         if not self._running:
             self.start_tick_listener()
         self._heartbeat_running = True
+
+        stale_after = max(interval * 3, 60)
 
         def _hb():
             failures = 0
@@ -224,6 +227,9 @@ class MarketDataService(BaseService):
                 if not self._heartbeat_running:
                     break
                 try:
+                    silent = time.time() - self.session.last_recv_at
+                    if self.session.last_recv_at and silent > stale_after:
+                        raise TimeoutError(f"no data for {silent:.0f}s")
                     if self._auth.ping() is None:
                         raise TimeoutError("ping timed out")
                     failures = 0

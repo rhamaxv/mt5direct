@@ -89,6 +89,7 @@ class AsyncMT5Client:
     def on_tick(self, callback): self.sync.on_tick(callback)
     def on_trade(self, callback): self.sync.on_trade(callback)
     def on_position_change(self, callback): self.sync.on_position_change(callback)
+    def on_connection_change(self, callback): self.sync.on_connection_change(callback)
     def start_tick_listener(self): return self.sync.start_tick_listener()
     def stop_tick_listener(self): self.sync.stop_tick_listener()
     def start_heartbeat(self, interval=30): return self.sync.start_heartbeat(interval)
@@ -98,6 +99,10 @@ class AsyncMT5Client:
     # -- state
     @property
     def host(self): return self.sync.host
+    @property
+    def connection_state(self): return self.sync.connection_state
+    @property
+    def is_connected(self): return self.sync.is_connected
     @property
     def address(self): return self.sync.address
     @property

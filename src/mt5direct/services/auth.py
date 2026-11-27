@@ -39,7 +39,7 @@ def login_payload(login_id: int, password: str, token: bytes, um: int, device_ha
 
 
 class AuthService(BaseService):
-    reconnect_backoff_max: float = 30.0
+    reconnect_backoff_max: float = 15.0
     """Automatic reconnects wait 1 s, then 2, 4, ... up to this many seconds between attempts;
     the wait resets after a successful reconnect."""
 
@@ -116,20 +116,24 @@ class AuthService(BaseService):
             except Exception as e:
                 log.debug("logout: %s", e)
         self.session.close()
+        self.state.set_connection_state("disconnected")
 
     def reconnect(self, login_id: Optional[int] = None, password: Optional[str] = None) -> bool:
         """Try the preferred host, then each known host; log in if credentials are given."""
         self.logout()
+        self.state.set_connection_state("reconnecting")
         for host in self._reconnect_hosts():
             try:
                 self.session.address = host
                 self.session.connect()
                 if login_id and password:
                     self.login(login_id, password)
+                self.state.set_connection_state("connected")
                 return True
             except Exception as e:
                 log.debug("reconnect to %s failed: %s", host, e)
                 continue
+        self.state.set_connection_state("disconnected")
         log.error("reconnect failed on every host")
         return False
 
@@ -143,21 +147,31 @@ class AuthService(BaseService):
             log.info("reconnect backoff %.0fs", self._backoff)
         time.sleep(self._backoff)
         self.logout()
-        for host in self._reconnect_hosts():
-            try:
-                self.session.address = host
-                self.session.connect()
-                self.relogin()
-                self._symbols.get_symbol_types()
-                self._symbols.get_symbols()
-                self._account.init_trading()
-                self._symbols.subscribe_all()
-                log.info("auto-reconnect OK via %s", host)
-                self._backoff = 1.0
-                return True
-            except Exception as e:
-                log.debug("auto-reconnect via %s failed: %s", host, e)
-                continue
+        self.session.clear()
+        self.state.set_connection_state("reconnecting")
+        normal_timeout = self.session.connect_timeout
+        self.session.connect_timeout = min(normal_timeout, 5.0)
+        try:
+            for host in self._reconnect_hosts():
+                try:
+                    t0 = time.time()
+                    self.session.address = host
+                    self.session.connect()
+                    self.relogin()
+                    self._symbols.get_symbol_types()
+                    self._symbols.get_symbols()
+                    self._account.init_trading()
+                    self._symbols.subscribe_all()
+                    log.info("auto-reconnect OK via %s in %.1fs", host, time.time() - t0)
+                    self._backoff = 1.0
+                    self.state.set_connection_state("connected")
+                    return True
+                except Exception as e:
+                    log.debug("auto-reconnect via %s failed: %s", host, e)
+                    continue
+        finally:
+            self.session.connect_timeout = normal_timeout
+        self.state.set_connection_state("disconnected")
         self._backoff = min(self._backoff * 2, self.reconnect_backoff_max)
         log.error("auto-reconnect failed on every host; next attempt after %.0fs", self._backoff)
         return False
