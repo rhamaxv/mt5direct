@@ -93,3 +93,24 @@ def test_trade_drops_stale_results(monkeypatch):
     monkeypatch.setattr(t, "request", lambda *a, **k: None)
     t.trade(0, "EURUSD", 0.01)
     assert [f.cmd for f in s._queue] == [8]
+
+
+def test_auto_reconnect_never_reports_disconnected_mid_cycle(monkeypatch):
+    from mt5direct.services.auth import AuthService
+    from mt5direct.services.base import ClientState
+    monkeypatch.setattr("mt5direct.services.auth.time.sleep", lambda d: None)
+    s = Session("fake"); st = ClientState(); st.connection_state = "connected"
+    seen = []; st.connection_callbacks.append(seen.append)
+    auth = AuthService(s, st, symbols=None, account=None)
+    auth._reconnect_hosts = lambda: ["h1"]
+    monkeypatch.setattr(s, "connect", lambda: None)
+    auth.relogin = lambda: None
+    auth._symbols = type("S", (), {"get_symbol_types": lambda self: None, "get_symbols": lambda self: None,
+                                   "subscribe_all": lambda self: None})()
+    auth._account = type("A", (), {"init_trading": lambda self: None})()
+    assert auth.auto_reconnect() is True
+    assert seen == ["reconnecting", "connected"]
+    monkeypatch.setattr(s, "connect", lambda: (_ for _ in ()).throw(OSError("down")))
+    seen.clear()
+    assert auth.auto_reconnect() is False
+    assert seen == ["reconnecting", "disconnected"]

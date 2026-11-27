@@ -412,7 +412,7 @@ Tests cover `protocol` and `parsers` with synthetic bytes and need no network.
 2. Commit, tag and push:
 
 ```bash
-git tag v0.3.4 && git push origin main --tags
+git tag v0.3.5 && git push origin main --tags
 ```
 
 The `Publish to PyPI` workflow runs the tests, checks that the tag matches the
